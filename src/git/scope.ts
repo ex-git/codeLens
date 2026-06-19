@@ -75,15 +75,16 @@ export function detectScope(cwd: string): GitScope | null {
 export function listDirty(cwd: string): string[] {
   const r = spawnSync("git", ["status", "--porcelain", "-z"], { cwd, encoding: "utf-8" });
   if (r.error || r.status !== 0) return [];
-  // -z separates records by NUL; each record is "XY path" (or "XY orig -> path" for renames).
-  const out = r.stdout ?? "";
+  // -z separates records by NUL. Rename/copy records are encoded as
+  // "XY new-path\0old-path\0", so consume the old-path record explicitly.
+  const records = (r.stdout ?? "").split("\0").filter((rec) => rec.length > 0);
   const files: string[] = [];
-  for (const rec of out.split("\0")) {
-    if (rec.length === 0) continue;
-    // status code is 2 chars, then a space, then path (possibly "orig -> path").
-    const path = rec.slice(3);
-    const finalPath = path.includes(" -> ") ? path.split(" -> ")[1] ?? path : path;
-    files.push(toPosix(finalPath));
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i]!;
+    if (rec.length < 4) continue;
+    const status = rec.slice(0, 2);
+    files.push(toPosix(rec.slice(3)));
+    if (status.includes("R") || status.includes("C")) i++;
   }
   return files;
 }

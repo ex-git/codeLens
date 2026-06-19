@@ -39,6 +39,21 @@ describe("enqueue", () => {
     expect(await r2).toBe("ok");
     expect(isWriteActive()).toBe(false);
   });
+
+  it("reports active while an enqueued task is running", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const task = enqueue(async () => {
+      expect(isWriteActive()).toBe(true);
+      await gate;
+      return "done";
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(isWriteActive()).toBe(true);
+    release();
+    expect(await task).toBe("done");
+    expect(isWriteActive()).toBe(false);
+  });
 });
 
 describe("write lease", () => {
@@ -68,19 +83,16 @@ describe("write lease", () => {
     db.close();
   });
 
-  it("expired lease can be taken over", () => {
+  it("expired lease can be taken over", async () => {
     const db = openMemoryDb();
     const { id } = getOrCreateIndex(db, scope!);
     const o1 = newOwnerId();
     acquireWriteLease(db, id, o1, 1); // 1ms lease
-    // wait for expiry
-    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    void wait(5).then(() => {
-      const o2 = newOwnerId();
-      expect(acquireWriteLease(db, id, o2)).toBe(true);
-      releaseWriteLease(db, id, o2);
-      db.close();
-    });
+    await new Promise((r) => setTimeout(r, 5));
+    const o2 = newOwnerId();
+    expect(acquireWriteLease(db, id, o2)).toBe(true);
+    releaseWriteLease(db, id, o2);
+    db.close();
   });
 });
 

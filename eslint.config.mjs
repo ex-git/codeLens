@@ -16,6 +16,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["build/", "node_modules/", "bench/fixtures/", "bench/run.ts", "bench/results/", "adapters/"],
+    ignores: ["build/", "node_modules/", "bench/fixtures/", "bench/run.ts", "bench/results/", "adapters/claude-code/", "adapters/cursor/", "adapters/opencode/"],
   },
 );

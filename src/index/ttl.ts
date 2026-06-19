@@ -54,6 +54,19 @@ export function computeExpiry(row: {
   return row.last_accessed_at + RETENTION.inactiveBranchDays * 86400_000;
 }
 
+export function deleteIndexRows(db: Database.Database, indexId: string): void {
+  const tx = db.transaction(() => {
+    db.prepare("DELETE FROM chunks_fts WHERE index_id = ?").run(indexId);
+    db.prepare("DELETE FROM chunks WHERE index_id = ?").run(indexId);
+    db.prepare("DELETE FROM symbols WHERE index_id = ?").run(indexId);
+    db.prepare("DELETE FROM edges WHERE index_id = ?").run(indexId);
+    db.prepare("DELETE FROM files WHERE index_id = ?").run(indexId);
+    db.prepare("DELETE FROM index_locks WHERE index_id = ?").run(indexId);
+    db.prepare("DELETE FROM indexes WHERE id = ?").run(indexId);
+  });
+  tx();
+}
+
 /** Prune expired inactive indexes. Respects never-delete guards. */
 export function pruneIndexes(db: Database.Database, now = Date.now()): PruneResult {
   const active = getActiveIndexId();
@@ -81,17 +94,7 @@ export function pruneIndexes(db: Database.Database, now = Date.now()): PruneResu
     const expiry = r.expires_at ?? computeExpiry({ pinned: r.pinned, status: r.status, branch_name: r.branch, head_sha: "", last_accessed_at: r.last, expires_at: r.expires_at, worktree_path: r.wpath }, now);
     if (expiry === null || now < expiry) { skipped++; continue; }
 
-    // Delete scoped rows across all tables, transactionally.
-    const tx = db.transaction(() => {
-      db.prepare("DELETE FROM chunks_fts WHERE index_id = ?").run(r.id);
-      db.prepare("DELETE FROM chunks WHERE index_id = ?").run(r.id);
-      db.prepare("DELETE FROM symbols WHERE index_id = ?").run(r.id);
-      db.prepare("DELETE FROM edges WHERE index_id = ?").run(r.id);
-            db.prepare("DELETE FROM files WHERE index_id = ?").run(r.id);
-      db.prepare("DELETE FROM index_locks WHERE index_id = ?").run(r.id);
-      db.prepare("DELETE FROM indexes WHERE id = ?").run(r.id);
-    });
-    tx();
+    deleteIndexRows(db, r.id);
     deleted.push(r.id);
   }
 

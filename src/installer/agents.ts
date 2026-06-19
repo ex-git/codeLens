@@ -74,8 +74,12 @@ Remove with: \`codelens uninstall\`.`;
 // ── JSON helpers ──────────────────────────────────────────────
 
 function readJson(path: string): Record<string, unknown> {
-  try { return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>; }
-  catch { return {}; }
+  try {
+    return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Could not parse JSON config at ${path}: ${msg}`);
+  }
 }
 
 function writeJson(path: string, obj: unknown): void {
@@ -485,4 +489,4 @@ export function printConfig(hostId: string, serverCommand: string, loc: Location
   return `${h.configPath(loc)}:\n${JSON.stringify(cfg, null, 2)}`;
 }
 
-export { VERSION, writeInstructions, removeInstructions, INSTRUCTIONS_START, INSTRUCTIONS_END };
+export { VERSION, writeInstructions, removeInstructions, INSTRUCTIONS_START, INSTRUCTIONS_END, readJson };

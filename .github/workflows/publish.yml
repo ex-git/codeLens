@@ -41,7 +41,8 @@ jobs:
       - name: Verify build artifacts exist
         run: |
           test -f build/src/server.js
-          test -f build/src/db/schema.sql || true
+          test -f build/src/db/schema.sql
+          test -f build/src/context/schema.sql
 
       - run: npm publish --provenance --access public
         env:

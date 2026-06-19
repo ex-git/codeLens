@@ -23,8 +23,10 @@ if ($args -contains '--uninstall') {
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw "codelens: Node.js >= 22.5 required. Install from https://nodejs.org/ and re-run."
 }
-$nodeMajor = [int]((node -p 'process.versions.node.split(".")[0]'))
-if ($nodeMajor -lt 22) { throw "codelens: Node >= 22.5 required (found $(node -v))." }
+$nodeVersionParts = (node -p 'process.versions.node').Split('.') | ForEach-Object { [int]$_ }
+if (($nodeVersionParts[0] -lt 22) -or (($nodeVersionParts[0] -eq 22) -and ($nodeVersionParts[1] -lt 5))) {
+  throw "codelens: Node >= 22.5 required (found $(node -v))."
+}
 
 # 2. Clone/update + build.
 Write-Host "Installing CodeLens from $repo ..."

@@ -192,7 +192,7 @@ function defaultServerCommand(): string | null {
   // Dev fallback: the currently running server.js (only meaningful for --print-config).
   try {
     const here = dirname(fileURLToPath(import.meta.url));
-    const serverJs = join(here, "..", "server.js");
+    const serverJs = join(here, "server.js");
     if (existsSync(serverJs)) return serverJs;
   } catch { /* ignore */ }
   return null;
@@ -206,11 +206,20 @@ function parseInstallArgs(args: string[]): { target: import("./installer/agents.
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
-    if (a === "--target") { const v = args[++i]; target = v === "all" || v === "auto" || v === "none" ? v : (v ?? "").split(","); }
-    else if (a === "--location") { const v = args[++i]; if (v === "local" || v === "global") location = v; }
+    if (a === "--target" || a.startsWith("--target=")) {
+      const v = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
+      target = v === "all" || v === "auto" || v === "none" ? v : (v ?? "").split(",");
+    }
+    else if (a === "--location" || a.startsWith("--location=")) {
+      const v = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
+      if (v === "local" || v === "global") location = v;
+    }
     else if (a === "--yes" || a === "-y") yes = true;
-    else if (a === "--command") command = args[++i];
-    else if (a === "--args") rest.push(...(args[++i] ?? "").split(" "));
+    else if (a === "--command" || a.startsWith("--command=")) command = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
+    else if (a === "--args" || a.startsWith("--args=")) {
+      const v = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
+      rest.push(...(v ?? "").split(" "));
+    }
   }
   return { target, location, yes, command, args: rest };
 }

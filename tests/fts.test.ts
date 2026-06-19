@@ -73,4 +73,19 @@ describe("ctxRefresh tool", () => {
     expect(r.indexedFiles).toBeGreaterThanOrEqual(2);
     db.close();
   });
+
+  it("removes rows for files deleted since the previous full refresh", () => {
+    const db = openMemoryDb();
+    const transient = join(repo, "src", "gone.ts");
+    writeFileSync(transient, "export const goneToken = 1;\n");
+    const scope = detectScope(repo)!;
+    const first = ctxRefresh(db, scope);
+    expect(db.prepare("SELECT COUNT(*) AS c FROM files WHERE index_id = ? AND path = ?").get(first.indexId, "src/gone.ts")).toMatchObject({ c: 1 });
+    rmSync(transient);
+    const second = ctxRefresh(db, scope);
+    expect(second.indexId).toBe(first.indexId);
+    expect(db.prepare("SELECT COUNT(*) AS c FROM files WHERE index_id = ? AND path = ?").get(first.indexId, "src/gone.ts")).toMatchObject({ c: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS c FROM chunks_fts WHERE index_id = ? AND path = ?").get(first.indexId, "src/gone.ts")).toMatchObject({ c: 0 });
+    db.close();
+  });
 });

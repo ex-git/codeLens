@@ -24,7 +24,15 @@ const state: QueueState = { tail: Promise.resolve(), active: false };
 
 /** Enqueue a write task; runs after all prior writes complete. */
 export function enqueue<T>(task: Task<T>): Promise<T> {
-  const run = state.tail.then(task, task) as Promise<T>;
+  const runTask = async () => {
+    state.active = true;
+    try {
+      return await task();
+    } finally {
+      state.active = false;
+    }
+  };
+  const run = state.tail.then(runTask, runTask) as Promise<T>;
   state.tail = run.catch(() => { /* swallow to keep chain alive */ });
   return run;
 }

@@ -62,6 +62,18 @@ function resolveServer(): ServerSpec | null {
 
 interface JsonRpcResponse { id?: number; result?: unknown; error?: { message: string }; }
 interface ToolDef { name: string; description?: string; inputSchema?: Record<string, unknown>; }
+interface PiCommandContext { ui: { notify(message: string, level?: string): void } }
+interface PiExtensionAPI {
+  registerTool(tool: {
+    name: string;
+    label: string;
+    description: string;
+    parameters: Record<string, unknown>;
+    execute(id: string, params: unknown): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }>;
+  }): void;
+  registerCommand(name: string, command: { description: string; handler(args: string, ctx: PiCommandContext): Promise<void> | void }): void;
+  on(name: string, handler: (event: { systemPrompt?: string; systemPromptOptions?: { cwd?: string } }) => Promise<unknown> | unknown): void;
+}
 
 class McpStdioClient {
   private proc: ChildProcess | null = null;
@@ -160,12 +172,14 @@ preferred discovery path.`;
 
 // ── Extension entry ──────────────────────────────────────────
 
-export default function (pi: import("@earendil-works/pi-coding-agent").ExtensionAPI) {
+export default function (pi: PiExtensionAPI) {
   const spec = resolveServer();
   if (!spec) {
     process.stderr.write(`[codelens] server not found. Run \`codelens install\` (writes ~/.codelens/server-path), or set CODELENS_SERVER=<path>/build/src/server.js, or run install.sh.\n`);
     return;
   }
+
+  const serverSpec = spec;
 
   // Mutable bridge holder. Tools' execute() closures reference `client` and
   // `bridged` directly, so reassigning them on a project switch re-points every
@@ -178,7 +192,7 @@ export default function (pi: import("@earendil-works/pi-coding-agent").Extension
   async function boot(cwd: string): Promise<void> {
     try { client?.shutdown(); } catch { /* ignore */ }
     const c = new McpStdioClient();
-    c.start(spec, cwd); // spawn the server with cwd = the current project
+    c.start(serverSpec, cwd); // spawn the server with cwd = the current project
     await c.initialize();
     const tools = await c.listTools();
     if (!toolsRegistered) {

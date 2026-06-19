@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { getActiveIndexId, getIndex, getOrCreateIndex } from "../index/manager.js";
-import { pruneIndexes, type PruneResult } from "../index/ttl.js";
+import { deleteIndexRows, pruneIndexes, type PruneResult } from "../index/ttl.js";
 
 /**
  * cl_prune + cl_drop tools (Step 23).
@@ -39,16 +39,7 @@ export function ctxDrop(db: Database.Database, target: { indexId?: string; branc
   if (!row) return { deleted: false, indexId, reason: "not found" };
   if (row.pinned) return { deleted: false, indexId, reason: "refused: pinned" };
 
-  const tx = db.transaction(() => {
-    db.prepare("DELETE FROM chunks_fts WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM chunks WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM symbols WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM edges WHERE index_id = ?").run(indexId);
-        db.prepare("DELETE FROM files WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM index_locks WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM indexes WHERE id = ?").run(indexId);
-  });
-  tx();
+  deleteIndexRows(db, indexId);
   return { deleted: true, indexId };
 }
 

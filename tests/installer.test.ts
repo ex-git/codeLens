@@ -91,6 +91,14 @@ describe("installer: opencode (mcp object)", () => {
     const cfg = JSON.parse(readFileSync(p, "utf-8"));
     expect(cfg.mcp["codelens"]).toEqual({ type: "local", command: [CMD], enabled: true });
   });
+
+  it("does not overwrite an invalid existing JSON config", () => {
+    const p = join(fakeHome, ".config", "opencode", "opencode.json");
+    mkdirSync(join(fakeHome, ".config", "opencode"), { recursive: true });
+    writeFileSync(p, "{ invalid json\n");
+    expect(() => runInstall({ serverCommand: CMD, location: "global", target: ["opencode"], instructions: false })).toThrow(/Could not parse JSON config/);
+    expect(readFileSync(p, "utf-8")).toBe("{ invalid json\n");
+  });
 });
 
 describe("installer: codex (TOML)", () => {

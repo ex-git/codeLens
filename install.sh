@@ -79,8 +79,7 @@ if ! command -v node >/dev/null 2>&1; then
   echo "codelens: Node.js is required (>= 22.5). Install it from https://nodejs.org/ and re-run." >&2
   exit 1
 fi
-node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
-if [ "$node_major" -lt 22 ]; then
+if ! node -e 'const [M,m]=process.versions.node.split(".").map(Number); process.exit(M > 22 || (M === 22 && m >= 5) ? 0 : 1)' >/dev/null 2>&1; then
   echo "codelens: Node >= 22.5 required (found $(node -v)). Upgrade: https://nodejs.org/" >&2
   exit 1
 fi

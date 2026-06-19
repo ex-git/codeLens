@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { detectScope, listDirty } from "../src/git/scope.js";
 import { resolveReal } from "../src/util/paths.js";
 import { execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -76,6 +76,20 @@ describe("listDirty", () => {
       const dirty = listDirty(repo);
       expect(dirty).toContain("new.ts");
       expect(dirty).not.toContain("ignoreme.txt");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("parses porcelain-z rename records without treating the old path as a new record", () => {
+    const repo = mkdtempSync(join(tmpdir(), "ce-rename-"));
+    try {
+      gitInit(repo);
+      writeFileSync(join(repo, "oldname.ts"), "x");
+      execSync("git add -A && git commit -q -m init", { cwd: repo });
+      renameSync(join(repo, "oldname.ts"), join(repo, "newname.ts"));
+      execSync("git add -A", { cwd: repo });
+      expect(listDirty(repo)).toEqual(["newname.ts"]);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

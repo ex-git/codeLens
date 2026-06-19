@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { GitScope } from "../git/scope.js";
 import { getOrCreateIndex, getActiveIndexId } from "./manager.js";
 import { scanFiles, type ScannedFile } from "./scanner.js";
-import { indexFile } from "./fts.js";
+import { indexFile, deleteFileFromIndex } from "./fts.js";
 
 /**
  * Top-level indexer (Step 7).
@@ -24,6 +24,12 @@ export function buildIndex(db: Database.Database, scope: GitScope): BuildResult 
   const indexId = row.id;
   const files = scanFiles(scope.repoRoot);
   const knownFiles = new Set(files.map((f) => f.path));
+  const stored = db
+    .prepare("SELECT path FROM files WHERE index_id = ? AND deleted = 0")
+    .all(indexId) as { path: string }[];
+  for (const row of stored) {
+    if (!knownFiles.has(row.path)) deleteFileFromIndex(db, indexId, row.path);
+  }
   let indexedFiles = 0;
   let totalChunks = 0;
   let skipped = 0;
