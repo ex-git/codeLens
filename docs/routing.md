@@ -1,34 +1,39 @@
 # Agent Routing Instructions — CodeLens
 
 > Inject this block into your agent's system prompt / rules so it routes code
-> discovery through the codelens tools instead of raw grep/find/read.
+> discovery through the codelens tools instead of bulk grep/find/read.
 
 ## When to use codelens tools
 
-**For codebase discovery, do NOT start with `grep`/`find`/`read`.** Use the
-codelens tools first:
+Prefer the codelens tools for code **discovery** — they keep the context window
+lean and are branch-scoped. They are guidance, not an absolute mandate: use the
+right tool for the job.
 
-1. Call `cl_current` to confirm the index is ready for the current branch.
-   - If `status` is `missing`, call `cl_refresh` to build the index.
-2. Use `cl_search` to find relevant files/symbols by intent (2–4 specific terms).
-3. Use `cl_related` to expand graph neighbors (tests, callers, imports).
-4. Use `cl_expand` to read the exact current file content for a chosen target
-   (it reads from disk — never stale).
-5. Save working context with `cl_save` and reload it with `cl_load` across
-   compaction / long sessions.
+0. Call `cl_current` to confirm the index is ready; if `status` is `missing`,
+   call `cl_refresh` to build it.
 
-## When raw reads are still allowed
+Prefer codelens when:
+- you don't know the exact name/string (semantic or conceptual search via `cl_search`)
+- you need relationships — importers, tests, callers (`cl_related`) — or a
+  per-file outline / repo map (`cl_map`)
+- the repo is large or unfamiliar, or you'd otherwise grep + read many files
+- branch-scoped correctness matters (results won't leak across branches)
 
-- Before **editing** a file: read the exact target file with your normal read
-  tool (or `cl_expand`) so you have the current bytes.
-- When **verifying** exact code, logs, or user-supplied paths.
-- When `cl_search` explicitly cannot answer (e.g. the index is empty and the
-  repo is not a git repo).
-- When the user explicitly asks for raw command output.
+Then use `cl_expand` to read the exact current content of a chosen target (it
+reads from disk — never stale), and `cl_save`/`cl_load` to persist working
+context across compaction.
 
-Do **not** ban raw reads outright — they are correct for editing and
-verification. The routing is about **discovery**: prefer indexed context over
-bulk file dumps to keep your context window lean.
+## When raw grep/find/read is fine (or better)
+
+- you already know an exact string/symbol/path
+- you're reading or **editing** a single known file (use `cl_expand` or a raw read)
+- the repo is tiny or familiar
+- you're **verifying** exact code, logs, or user-supplied paths
+- the user explicitly asks for raw command output
+
+The routing is about **discovery**, not a ban on raw reads. Don't force codelens
+for a known exact lookup; don't fall back to bulk grep when you don't know what
+you're looking for.
 
 ## Branch safety
 
@@ -51,6 +56,7 @@ recent edits may not yet be reflected — call `cl_refresh` or re-query.
 | `cl_refresh` | build/update the current branch index |
 | `cl_search` | hybrid ranked search → compact handles |
 | `cl_related` | graph neighbors (imports/tests/callers) |
+| `cl_map` | per-file symbol outline (repo map) |
 | `cl_expand` | exact current file content by path/range |
 | `cl_save` / `cl_load` | persist + reload working context |
 | `cl_stats` | index counts |

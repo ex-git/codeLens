@@ -14,14 +14,21 @@ JSON-serialized text content.
 - **Use**: build/update the current branch index.
 
 ## cl_search
-- **Input**: `{ query: string, limit?: number=5, cursor?: string }`
-- **Returns**: `{ indexId, results:[{handle,path,startLine,endLine,score,snippet,why}], nextCursor, freshness, pendingFiles }`
+- **Input**: `{ query: string, limit?: number=5, cursor?: string, contentType?: "code"|"prose", related?: boolean, snippet?: "none"|"headline"|"compact"|"full" }`
+- **Returns**: `{ indexId, results:[{handle,path,startLine,endLine,score,snippet,why}], nextCursor, freshness, pendingFiles, related? }`
 - **Use**: intent-level code discovery.
+- **`snippet` (preview verbosity)**: default is signature-first `headline` (richer `compact` for the top ~3 results), which keeps payloads small. `none` returns path+lines only (fetch with `cl_expand`); `compact`/`full` return larger code windows. Explicitly setting `snippet` applies that mode to all results.
+- **`why` signals**: `fts|symbol|exact|graph|path|code` (exact = exact symbol-name match; path = query term in the file path). Ranking is deterministic with a stable tie-break.
 
 ## cl_related
 - **Input**: `{ path: string, types?: string[], depth?: number=2, direction?: "out"|"in"|"both" }`
 - **Returns**: `{ indexId, results:[{handle,path,edgeType,hops,confidence}] }`
-- **Edge types**: `imports|imported_by|tests|calls|references|defines|exports|belongs_to`
+- **Edge types**: `imports|imported_by|tests|calls|references|defines|exports|belongs_to` (TS/JS populate `calls`/`references` and resolve dynamic `import()`).
+
+## cl_map
+- **Input**: `{ path?: string, limit?: number=50, all?: boolean }`
+- **Returns**: `{ indexId, files:[{path, symbols:[{name,kind,signature,startLine,endLine,exported}]}], fileCount, truncated }`
+- **Use**: outline / repo-map for orientation — per-file symbol signatures from the index (no file re-read). Defaults to exported symbols; pass `all:true` for everything. File-capped (default 50, max 200) with a `truncated` flag.
 
 ## cl_expand
 - **Input**: `{ path?: string, handle?: string, startLine?: number, endLine?: number, budget?: number=4000 }`

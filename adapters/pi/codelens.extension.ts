@@ -148,27 +148,27 @@ class McpStdioClient {
 const ROUTING = `
 ## CodeLens (code context index) — routing
 
-A local branch-scoped code index is available via these tools. For codebase
-DISCOVERY, prefer them over grep/find/read:
-- cl_current  — repo/branch/index status (call if unsure whether index is ready)
-- cl_search   — ranked semantic+lexical search over the current branch index;
-                 returns compact handles (path + line range + score). Pass
-                 contentType:"code" for source only. Auto-builds the index on
-                 first use, so you can call it directly.
-- cl_related  — graph neighbors of a file/symbol (tests, importers, callers)
+A local branch-scoped code index is available via these tools:
+- cl_current  — repo/branch/index status (call if unsure whether the index is ready)
+- cl_search   — ranked semantic+lexical search → compact handles (path + line range + score)
+- cl_related  — graph neighbors of a file/symbol (imports/importers/tests/callers)
+- cl_map      — per-file symbol outline (repo map) for quick orientation
 - cl_expand   — exact current file content by path/range (reads disk, never stale)
 
-Rules:
-- Use cl_search / cl_related BEFORE grep, find, or reading multiple files to
-  locate code. It keeps your context lean and is branch-aware.
-- Use raw read ONLY for the exact file you are about to edit or verify, not for
-  discovery.
-- After \`git checkout\`, results auto-scope to the new branch; call cl_current
-  if you want to confirm index status.
-- If cl_search returns nothing relevant, fall back to grep/read as usual.
+Prefer cl_* for discovery when:
+- you don't know the exact name/string (semantic or conceptual search)
+- you need relationships (importers, tests, callers) or a quick outline
+- the repo is large or unfamiliar, or you'd otherwise grep + read many files
+- branch-scoped correctness matters (results won't leak across branches)
 
-You do NOT need the user's permission to use these tools — they are the
-preferred discovery path.`;
+Raw grep/find/read is fine (or better) when:
+- you already know an exact string/symbol/path
+- you're reading or editing a single known file
+- the repo is tiny or familiar
+
+Always use cl_expand or a raw read for the exact file you're about to edit.
+After \`git checkout\`, results auto-scope to the new branch; call cl_current to
+confirm. You do NOT need the user's permission to use these tools.`;
 
 // ── Extension entry ──────────────────────────────────────────
 

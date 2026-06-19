@@ -73,6 +73,37 @@ describe("ctxSearch", () => {
     expect(() => ctxSearch(db, "x")).toThrow(/no active index/);
     db.close();
   });
+
+  it("snippet=none returns empty previews (path+lines only)", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxSearch(db, "validateSession", { snippet: "none" });
+    expect(r.results.length).toBeGreaterThan(0);
+    expect(r.results.every((h) => h.snippet === "")).toBe(true);
+    expect(r.results[0]!.handle).toBeTruthy();
+    db.close();
+  });
+
+  it("snippet=headline is a signature-first single line, smaller than full", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const head = ctxSearch(db, "validateSession", { snippet: "headline" });
+    const full = ctxSearch(db, "validateSession", { snippet: "full" });
+    const h = head.results.find((x) => x.path === "src/auth/session.ts")!;
+    const f = full.results.find((x) => x.path === "src/auth/session.ts")!;
+    expect(h.snippet).toContain("**validateSession**");
+    expect(h.snippet.split("\n").length).toBe(1); // single line
+    expect(h.snippet.length).toBeLessThanOrEqual(f.snippet.length);
+    db.close();
+  });
+
+  it("default preview keeps the field present and highlights matches", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxSearch(db, "validateSession");
+    expect(r.results[0]!.snippet).toContain("**validateSession**");
+    db.close();
+  });
 });
 
 describe("ctxExpand", () => {

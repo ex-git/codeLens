@@ -115,6 +115,16 @@ describe("indexer edge integration", () => {
     expect(exports.c).toBeGreaterThan(0);
     db.close();
   });
+
+  it("builds a calls edge auth.ts → session.ts", () => {
+    const db = openMemoryDb();
+    const r = buildIndex(db, scope!);
+    const call = db.prepare(
+      "SELECT to_path FROM edges WHERE index_id = ? AND type = 'calls' AND from_path = ?",
+    ).get(r.indexId, "src/auth/auth.ts") as { to_path: string } | undefined;
+    expect(call?.to_path).toBe("src/auth/session.ts");
+    db.close();
+  });
 });
 describe("resolveImport TS .js→.ts substitution", () => {
   it("resolves './identity.js' to 'src/index/identity.ts'", () => {

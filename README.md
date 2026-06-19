@@ -149,9 +149,10 @@ node build/src/server.js
 
 1. In your repo, the agent calls `cl_current` (builds index if missing) or
    `cl_refresh` explicitly.
-2. `cl_search(query: "session validation")` → ranked handles.
-3. `cl_related(path: "src/auth/session.ts", types: ["tests"])` → tests.
-4. `cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58)` → exact code.
+2. `cl_search(query: "session validation")` → ranked handles (signature-first previews; pass `snippet:"full"` for more).
+3. `cl_related(path: "src/auth/session.ts", types: ["tests"])` → tests/callers.
+4. `cl_map(path: "src/auth")` → per-file symbol outline for orientation.
+5. `cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58)` → exact code.
 
 See [`docs/agent-guide.md`](docs/agent-guide.md) for a full walkthrough,
 [`docs/tools.md`](docs/tools.md) for the tool reference, and
