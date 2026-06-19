@@ -64,12 +64,23 @@ const CODEX_START = `# codelens routing start (managed by \`codelens install\`)`
 const CODEX_END = `# codelens routing end`;
 const INSTRUCTIONS_BODY = `# CodeLens routing
 
-For codebase discovery, use the codelens MCP tools (\`cl_current\`,
-\`cl_refresh\`, \`cl_search\`, \`cl_related\`, \`cl_expand\`, \`cl_save\`,
-\`cl_load\`) BEFORE \`grep\`/\`find\`/bulk-\`read\`. Use \`cl_expand\` or a raw
-read only for editing/verifying exact files. Results are scoped to the current
-branch index; call \`cl_current\` after a \`git checkout\`. See \`docs/routing.md\`.
-Remove with: \`codelens uninstall\`.`;
+Prefer the codelens MCP tools (\`cl_search\`, \`cl_related\`, \`cl_expand\`,
+\`cl_map\`, \`cl_save\`, \`cl_load\`) for code discovery — they keep context lean
+and are branch-scoped.
+
+Use codelens when:
+- you don't know the exact name/string (semantic or conceptual search)
+- you need relationships (importers, tests, callers) or a file outline
+- the repo is large or unfamiliar, or you'd otherwise grep + read many files
+
+Raw \`grep\`/\`find\`/\`read\` is fine when:
+- you already know an exact string/symbol/path
+- you're reading or editing a single known file
+- the repo is tiny or familiar
+
+Always use \`cl_expand\` or a raw read for the exact file you're about to edit.
+Results are scoped to the current branch; call \`cl_current\` after a
+\`git checkout\`. See \`docs/routing.md\`. Remove with: \`codelens uninstall\`.`;
 
 // ── JSON helpers ──────────────────────────────────────────────
 

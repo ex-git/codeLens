@@ -22,6 +22,11 @@ End-to-end workflow for a coding agent using codelens.
        { handle: "rel:src/auth/session.test.ts", path: "…", edgeType: "tests", hops: 1 },
        { handle: "rel:src/routes/login.ts", path: "…", edgeType: "imported_by", hops: 1 }
      ]
+   # TS/JS also populate `calls`/`references` and resolve dynamic import().
+
+   # Orientation (optional): outline a file or directory without reading it.
+   cl_map(path: "src/auth")
+   → files: [{ path: "src/auth/session.ts", symbols: [{ name: "validateSession", kind: "function", signature: "export function validateSession(token: string): boolean" }] }]
 
 5. cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58, budget: 1200)
    → { content: "export function validateSession(...) { … }", truncated: false }

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { getActiveIndexId, touchIndex, getIndex } from "../index/manager.js";
-import { extractSnippet } from "../search/snippet.js";
+import { extractSnippet, headlineSnippet } from "../search/snippet.js";
 import { rank, normalize, type SignalScore } from "../search/rank.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
@@ -37,6 +37,10 @@ export interface SearchResult {
 
 const DEFAULT_LIMIT = 5;
 
+export type SnippetMode = "none" | "headline" | "compact" | "full";
+/** Ranks below this (0-indexed) keep a richer preview when no mode is forced. */
+const RICH_PREVIEW_TOP_N = 3;
+
 function ftsQuery(query: string): string {
   const terms = query.split(/[^A-Za-z0-9_]+/i).filter((t) => t.length > 0);
   if (terms.length === 0) return "";
@@ -68,6 +72,9 @@ function buildSignals(db: Database.Database, indexId: string, query: string, fts
   const symbolStmt = db.prepare(
     `SELECT 1 FROM symbols WHERE index_id = ? AND path = ? AND lower(name) LIKE ? LIMIT 1`,
   );
+  const exactStmt = db.prepare(
+    `SELECT 1 FROM symbols WHERE index_id = ? AND path = ? AND lower(name) = ? LIMIT 1`,
+  );
   const topPaths = new Set(ftsRows.slice(0, 8).map((r) => r.path));
   const graphPaths = new Set<string>();
   for (const p of topPaths) {
@@ -79,6 +86,9 @@ function buildSignals(db: Database.Database, indexId: string, query: string, fts
   }
   return ftsRows.map((r, i) => {
     const symMatch = terms.some((t) => !!symbolStmt.get(indexId, r.path, "%" + t + "%"));
+    const exactMatch = terms.some((t) => !!exactStmt.get(indexId, r.path, t));
+    const pathLower = r.path.toLowerCase();
+    const pathMatch = terms.some((t) => pathLower.includes(t));
     return {
       path: r.path,
       startLine: r.startLine,
@@ -86,7 +96,9 @@ function buildSignals(db: Database.Database, indexId: string, query: string, fts
       chunkId: r.chunkId,
       fts: ftsNorm[i],
       symbol: symMatch ? 1 : 0,
+      exact: exactMatch ? 1 : 0,
       graph: graphPaths.has(r.path) ? 1 : 0,
+      pathHit: pathMatch ? 1 : 0,
       code: r.contentType === "code" ? 1 : 0,
     };
   });
@@ -105,7 +117,7 @@ function prelude(db: Database.Database, opts?: { scope?: GitScope; refreshBudget
 export function ctxSearch(
   db: Database.Database,
   query: string,
-  opts?: { limit?: number; cursor?: string; scope?: GitScope; refreshBudgetMs?: number; contentType?: "code" | "prose"; related?: boolean },
+  opts?: { limit?: number; cursor?: string; scope?: GitScope; refreshBudgetMs?: number; contentType?: "code" | "prose"; related?: boolean; snippet?: SnippetMode },
 ): SearchResult {
   const indexId = getActiveIndexId();
   if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
@@ -121,6 +133,33 @@ export function ctxSearch(
   const page = ranked.slice(offset, offset + limit);
   const hasMore = offset + limit < ranked.length;
   const byChunk = new Map(ftsRows.map((r) => [r.chunkId, r]));
+  const explicitMode = opts?.snippet;
+  // Look up the smallest symbol overlapping a chunk's line range for a
+  // signature-first headline preview.
+  const sigStmt = db.prepare(
+    `SELECT name, kind, signature FROM symbols
+     WHERE index_id = ? AND path = ? AND start_line <= ? AND end_line >= ?
+     ORDER BY (end_line - start_line) ASC`,
+  );
+  const queryTerms = query.toLowerCase().split(/[^a-z0-9_]+/i).filter((t) => t.length > 1);
+  const headlineFor = (src: FtsRow): string => {
+    let sig: string | null = null;
+    try {
+      const syms = sigStmt.all(indexId, src.path, src.endLine, src.startLine) as { name: string; kind: string; signature: string | null }[];
+      const chosen = syms.find((s) => queryTerms.some((t) => s.name.toLowerCase().includes(t))) ?? syms[0];
+      if (chosen) sig = chosen.signature ?? `${chosen.kind} ${chosen.name}`;
+    } catch { /* symbols best-effort */ }
+    return headlineSnippet(src.content, query, sig);
+  };
+  const renderPreview = (src: FtsRow, rankOffset: number): string => {
+    const mode: SnippetMode = explicitMode ?? (rankOffset < RICH_PREVIEW_TOP_N ? "compact" : "headline");
+    switch (mode) {
+      case "none": return "";
+      case "headline": return headlineFor(src);
+      case "compact": return extractSnippet(src.content, query, 500);
+      case "full": return extractSnippet(src.content, query, 1500);
+    }
+  };
   const results: SearchHandle[] = page.map((r, i) => {
     const src = r.chunkId ? byChunk.get(r.chunkId) : undefined;
     const rankOffset = offset + i;
@@ -130,7 +169,7 @@ export function ctxSearch(
       startLine: r.startLine,
       endLine: r.endLine,
       score: r.score,
-      snippet: src ? extractSnippet(src.content, query) : r.path,
+      snippet: src ? renderPreview(src, rankOffset) : r.path,
       cursor: encodeCursor(rankOffset, r.chunkId ?? `${rankOffset}`),
       why: r.why,
     };

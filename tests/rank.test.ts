@@ -41,6 +41,30 @@ describe("rank", () => {
     const r = rank([{ path: "a.ts", startLine: 1, endLine: 2, fts: 0.5, symbol: 1, graph: 1, recency: 0 }]);
     expect(r[0]!.why).toEqual(expect.arrayContaining(["fts", "symbol", "graph"]));
   });
+  it("exact symbol match outranks substring-only match at equal fts", () => {
+    const a = { path: "a.ts", startLine: 1, endLine: 2, fts: 0.8, symbol: 1, exact: 1 };
+    const b = { path: "b.ts", startLine: 1, endLine: 2, fts: 0.8, symbol: 1, exact: 0 };
+    const r = rank([a, b]);
+    expect(r[0]!.path).toBe("a.ts");
+    expect(r[0]!.why).toContain("exact");
+  });
+  it("path/filename match boosts at equal fts", () => {
+    const a = { path: "a.ts", startLine: 1, endLine: 2, fts: 0.5, pathHit: 1 };
+    const b = { path: "b.ts", startLine: 1, endLine: 2, fts: 0.5, pathHit: 0 };
+    const r = rank([a, b]);
+    expect(r[0]!.path).toBe("a.ts");
+  });
+  it("is deterministic and stable on tied scores", () => {
+    const tied = [
+      { path: "b.ts", startLine: 5, endLine: 6, fts: 0.5 },
+      { path: "a.ts", startLine: 1, endLine: 2, fts: 0.5 },
+      { path: "a.ts", startLine: 3, endLine: 4, fts: 0.5 },
+    ];
+    const r1 = rank(tied).map((x) => `${x.path}:${x.startLine}`);
+    const r2 = rank([...tied].reverse()).map((x) => `${x.path}:${x.startLine}`);
+    expect(r1).toEqual(["a.ts:1", "a.ts:3", "b.ts:5"]); // path then startLine
+    expect(r2).toEqual(r1); // order-independent of input
+  });
 });
 
 describe("ctxSearch integration", () => {
@@ -69,7 +93,7 @@ describe("ctxSearch integration", () => {
   });
 
   it("weights sum to 1 by default", () => {
-    const sum = DEFAULT_WEIGHTS.fts + DEFAULT_WEIGHTS.symbol + DEFAULT_WEIGHTS.graph + DEFAULT_WEIGHTS.code + DEFAULT_WEIGHTS.recency;
+    const sum = DEFAULT_WEIGHTS.fts + DEFAULT_WEIGHTS.symbol + DEFAULT_WEIGHTS.graph + DEFAULT_WEIGHTS.code + DEFAULT_WEIGHTS.pathHit + DEFAULT_WEIGHTS.exact + DEFAULT_WEIGHTS.recency;
     expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
   });
 });

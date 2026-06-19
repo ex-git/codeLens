@@ -5,6 +5,7 @@ import { ctxRefresh } from "./refresh.js";
 import { ctxSearch } from "./search.js";
 import { ctxRelated } from "./related.js";
 import { ctxExpand } from "./expand.js";
+import { ctxMap } from "./map.js";
 import { ctxSave, ctxLoad } from "./save.js";
 import { ctxPrune, ctxDrop } from "./prune.js";
 import { gatherStats } from "../obs/stats.js";
@@ -81,6 +82,7 @@ export const TOOLS: ToolDef[] = [
       cursor: z.string().optional().describe("Pagination cursor from a prior result's nextCursor."),
       contentType: z.enum(["code", "prose"]).optional().describe("Filter by chunk type: 'code' (source) or 'prose' (docs/markdown). Omit for all, with a modest code boost."),
       related: z.boolean().optional().describe("If true, also return graph neighbors (imports/importers/tests) of the top result — one-call find+explore."),
+      snippet: z.enum(["none", "headline", "compact", "full"]).optional().describe("Preview verbosity. Default: signature-first 'headline' (richer for the top results). 'none' = path+lines only (fetch with cl_expand); 'compact'/'full' = larger code windows."),
     },
     handler: (ctx, args) => {
       ensureActive(ctx);
@@ -90,6 +92,7 @@ export const TOOLS: ToolDef[] = [
         scope: withScope(ctx) ?? undefined,
         contentType: args.contentType as "code" | "prose" | undefined,
         related: args.related as boolean | undefined,
+        snippet: args.snippet as "none" | "headline" | "compact" | "full" | undefined,
       });
     },
   },
@@ -138,6 +141,24 @@ export const TOOLS: ToolDef[] = [
         startLine: args.startLine as number | undefined,
         endLine: args.endLine as number | undefined,
         budget: args.budget as number | undefined,
+      });
+    },
+  },
+  {
+    name: "cl_map",
+    description:
+      "Outline / repo-map: per-file symbol signatures for a file or directory, read from the index (no file re-read). Cheap orientation before diving in. Defaults to exported symbols; pass all:true for everything.\n\nRETURNS: {indexId, files:[{path, symbols:[{name,kind,signature,startLine,endLine,exported}]}], fileCount, truncated}\n\nEXAMPLE: cl_map(path: \"src/auth\")",
+    schema: {
+      path: z.string().optional().describe("Repo-relative POSIX file or directory prefix to outline. Omit for the whole index (capped)."),
+      limit: z.coerce.number().optional().describe("Max distinct files (default 50, max 200)."),
+      all: z.boolean().optional().describe("Include non-exported symbols too (default: exported only)."),
+    },
+    handler: (ctx, args) => {
+      ensureActive(ctx);
+      return ctxMap(ctx.coreDb, {
+        path: args.path as string | undefined,
+        limit: args.limit as number | undefined,
+        all: args.all as boolean | undefined,
       });
     },
   },

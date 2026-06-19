@@ -59,3 +59,33 @@ export function extractSnippet(content: string, query: string, maxChars = 1500):
   }
   return snippet;
 }
+
+/**
+ * Single-line headline preview: prefer a symbol signature, else the best
+ * matching line. Signature-first disambiguation for ranked lists at a
+ * fraction of the bytes of a windowed snippet.
+ */
+export function headlineSnippet(content: string, query: string, signature?: string | null, maxChars = 200): string {
+  const terms = tokenize(query);
+  let line = signature && signature.trim().length > 0 ? signature.trim() : bestMatchingLine(content, terms);
+  line = line.trim();
+  if (line.length > maxChars) line = line.slice(0, maxChars) + "…";
+  for (const t of terms) {
+    const re = new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "ig");
+    line = line.replace(re, "**$1**");
+  }
+  return line;
+}
+
+/** First non-blank line containing a query term, else the first non-blank line. */
+function bestMatchingLine(content: string, terms: string[]): string {
+  const lines = content.split("\n");
+  if (terms.length > 0) {
+    for (const ln of lines) {
+      if (ln.trim().length === 0) continue;
+      const low = ln.toLowerCase();
+      if (terms.some((t) => low.includes(t))) return ln;
+    }
+  }
+  return lines.find((l) => l.trim().length > 0) ?? "";
+}
