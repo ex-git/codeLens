@@ -1,0 +1,10 @@
+node_modules/
+build/
+*.db
+*.db-wal
+*.db-shm
+.codelens/
+plans/
+coverage/
+*.log
+.DS_Store

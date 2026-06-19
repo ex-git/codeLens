@@ -1,0 +1,24 @@
+---
+description: Route code discovery to codelens tools
+globs: "**/*"
+alwaysApply: true
+---
+
+# CodeLens routing
+
+For codebase discovery, do NOT start with `grep`/`find`/`read`. Use the
+codelens MCP tools first:
+
+1. `cl_current` — check index readiness for the current branch.
+2. `cl_search` — find relevant files/symbols by intent.
+3. `cl_related` — expand tests/callers/imports.
+4. `cl_expand` — read exact current file content for a chosen target.
+
+Raw reads are still allowed for **editing** exact files and **verifying**
+exact code. The routing is about discovery: prefer indexed context over bulk
+file dumps to keep the context window lean.
+
+Results are scoped to the current branch index only. After `git checkout`,
+call `cl_current` again; the new branch index activates automatically.
+
+See `docs/routing.md` for full instructions.

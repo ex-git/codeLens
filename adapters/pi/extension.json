@@ -1,0 +1,10 @@
+{
+  "name": "codelens",
+  "version": "1.0.0",
+  "type": "mcp",
+  "mcp": {
+    "command": "npx",
+    "args": ["-y", "@fodx/codelens"]
+  },
+  "description": "Branch-aware code search & relation graph (MCP server + CLI). Routes agents to cl_search/cl_related/cl_expand instead of raw grep/read."
+}

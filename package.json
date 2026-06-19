@@ -1,0 +1,103 @@
+{
+  "name": "@fodx/codelens",
+  "version": "1.0.0",
+  "description": "Local, branch-aware code search & relation graph. SQLite FTS5 + tree-sitter symbols + source-graph edges, exposed as an MCP server and CLI. No chat LLM required.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/ex-git/codeLens#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ex-git/codeLens.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ex-git/codeLens/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "mcp",
+    "mcp-server",
+    "modelcontextprotocol",
+    "code-search",
+    "code-graph",
+    "code-index",
+    "tree-sitter",
+    "claude-code",
+    "cursor",
+    "gemini-cli",
+    "opencode",
+    "codex"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "main": "build/src/server.js",
+  "bin": {
+    "codelens": "build/src/server.js"
+  },
+  "files": [
+    "build/src",
+    "adapters/pi",
+    "README.md",
+    "docs/agent-guide.md",
+    "docs/routing.md",
+    "docs/tools.md",
+    "docs/codelens-preview.png"
+  ],
+  "pi": {
+    "extensions": [
+      "adapters/pi/codelens.extension.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/ex-git/codeLens/main/docs/codelens-preview.png"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "build": "tsc && node scripts/build.mjs",
+    "prepublishOnly": "npm run build",
+    "mcp:smoke": "node build/src/server.js --smoke",
+    "start": "node build/src/server.js",
+    "benchmark": "npx tsx bench/run.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "better-sqlite3": "^12.6.2",
+    "ignore": "^7.0.5",
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-c": "^0.24.1",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-php": "^0.24.2",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-ruby": "^0.23.1",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "zod": "^3.25.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.19.11",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.0.18"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "budgets": {
+    "searchP50Ms": 50,
+    "searchP95Ms": 150,
+    "smallColdMs": 3000,
+    "reindexPerFileMs": 20,
+    "largeColdMs": 10000
+  },
+  "metrics": {
+    "smallColdMs": 98.374541,
+    "searchP50Ms": 28.783208,
+    "searchP95Ms": 33.802042,
+    "relatedP50Ms": 0.057333,
+    "reindexPerFileMs": 3.0225791,
+    "largeColdMs": 2887.658667,
+    "largeSearchP50Ms": 135.960458
+  },
+  "pass": true,
+  "failures": []
+}

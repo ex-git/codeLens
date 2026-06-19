@@ -1,0 +1,14 @@
+{
+  "name": "codelens",
+  "version": "1.0.0",
+  "description": "Branch-aware code search & relation graph. Routes agents to cl_search/cl_related/cl_expand instead of raw grep/read.",
+  "tools": ["*"],
+  "hooks": {
+    "preToolUse": [
+      { "matcher": "Bash|Read|Grep", "hooks": [{ "type": "command", "command": "node adapters/claude-code/pretooluse.mjs" }] }
+    ],
+    "sessionStart": [
+      { "hooks": [{ "type": "command", "command": "cat docs/routing.md" }] }
+    ]
+  }
+}
