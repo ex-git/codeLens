@@ -62,6 +62,7 @@ export function extractSymbols(path: string, lang: string, source: string): Extr
   }
   const out: ExtractedSymbol[] = [];
   const root = tree.rootNode;
+  const gdscriptPublic = lang === "gdscript"; // GDScript: no visibility modifiers → everything public
 
   function nodeName(node: Parser.SyntaxNode): string | null {
     // GDScript `func _init()` parses as constructor_definition with no name field.
@@ -75,6 +76,7 @@ export function extractSymbols(path: string, lang: string, source: string): Extr
   }
 
   function isExported(node: Parser.SyntaxNode): boolean {
+    if (gdscriptPublic) return true;
     if (EXPORT_WRAPPERS.has(node.type)) return true;
     if (node.parent && EXPORT_WRAPPERS.has(node.parent.type)) return true;
     const text = node.text;
