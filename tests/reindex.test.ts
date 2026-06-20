@@ -86,3 +86,90 @@ describe("ensureFreshIndex", () => {
     rmSync(join(repo, "src", "late.ts"));
   });
 });
+
+describe("ensureFreshIndex GDScript classNameMap propagation", () => {
+  let gdRepo: string;
+  let gdScope: GitScope | null;
+
+  beforeAll(() => {
+    gdRepo = mkdtempSync(join(tmpdir(), "ce-gd-reindex-"));
+    execSync("git init -q", { cwd: gdRepo });
+    execSync("git config user.email t@t.t && git config user.name t", { cwd: gdRepo });
+    mkdirSync(join(gdRepo, "scripts"), { recursive: true });
+
+    // player.gd extends Character — but Character class doesn't exist yet
+    writeFileSync(
+      join(gdRepo, "scripts", "player.gd"),
+      `extends Character
+
+func take_damage(amount):
+  pass
+`,
+    );
+    execSync("git add -A && git commit -q -m init", { cwd: gdRepo });
+    gdScope = detectScope(gdRepo);
+  });
+
+  afterAll(() => rmSync(gdRepo, { recursive: true, force: true }));
+
+  it("add class_name file → existing extends file get resolved edge", () => {
+    const db = openMemoryDb();
+    buildIndex(db, gdScope!);
+
+    // Before: player.gd has no imports edge (Character unresolved)
+    const before = db.prepare(
+      "SELECT count(*) as c FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports'",
+    ).get((db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id) as { c: number };
+    expect(before.c).toBe(0);
+
+    // Add character.gd with class_name Character
+    writeFileSync(
+      join(gdRepo, "scripts", "character.gd"),
+      `class_name Character
+extends Node2D
+
+func take_damage(amount):
+  pass
+`,
+    );
+
+    // Incremental reindex — only character.gd is new, player.gd unchanged
+    const r = ensureFreshIndex(db, gdScope!);
+    expect(r.refreshed).toBeGreaterThanOrEqual(1);
+
+    // After: player.gd should have imports edge → character.gd
+    const idx = (db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id;
+    const edge = db.prepare(
+      "SELECT to_path FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports'",
+    ).get(idx) as { to_path: string } | undefined;
+    expect(edge?.to_path).toBe("scripts/character.gd");
+    db.close();
+  });
+
+  it("remove class_name file → existing extends file lose stale edge", () => {
+    const db = openMemoryDb();
+    buildIndex(db, gdScope!);
+
+    // Verify edge exists after full build
+    const idx = (db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id;
+    const edge = db.prepare(
+      "SELECT to_path FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports'",
+    ).get(idx) as { to_path: string } | undefined;
+    expect(edge?.to_path).toBe("scripts/character.gd");
+
+    // Delete character.gd — player.gd unchanged
+    rmSync(join(gdRepo, "scripts", "character.gd"));
+
+    // Incremental reindex
+    const r = ensureFreshIndex(db, gdScope!);
+    expect(r.deleted).toBeGreaterThanOrEqual(1);
+
+    // After: player.gd should NOT have imports edge to character.gd
+    const idx2 = (db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id;
+    const stale = db.prepare(
+      "SELECT to_path FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports' AND to_path = 'scripts/character.gd'",
+    ).get(idx2) as { to_path: string } | undefined;
+    expect(stale).toBeUndefined();
+    db.close();
+  });
+});

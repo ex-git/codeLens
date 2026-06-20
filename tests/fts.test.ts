@@ -35,6 +35,19 @@ describe("chunkText", () => {
     expect(c[0]!.endLine).toBeLessThanOrEqual(c[1]!.startLine + 1);
   });
 });
+describe("content_type classification", () => {
+  it("classifies .gd files as code", () => {
+    const gdPath = join(repo, "src", "player.gd");
+    writeFileSync(gdPath, "extends CharacterBody3D\nfunc _process(delta):\n  pass\n");
+    execSync("git add -A && git commit -q -m add-gd", { cwd: repo });
+    const db = openMemoryDb();
+    const scope = detectScope(repo)!;
+    buildIndex(db, scope);
+    const row = db.prepare("SELECT content_type FROM chunks WHERE path = ? LIMIT 1").get("src/player.gd") as { content_type: string };
+    expect(row.content_type).toBe("code");
+    db.close();
+  });
+});
 
 describe("indexFile + FTS", () => {
   it("indexes a file and FTS MATCH finds its content", () => {

@@ -4,14 +4,14 @@ import { makeParser } from "./grammars.js";
 /**
  * Symbol extractor (Step 13).
  *
- * Walks a tree-sitter AST to find function/class/method/type/constant/import/
- * export declarations with line ranges + signatures. Node types vary per
+ * Walks a tree-sitter AST to find function/class/method/type/constant/signal/
+ * import/export declarations with line ranges + signatures. Node types vary per
  * grammar; SYMBOL_TYPES maps the common ones. Unsupported languages return [].
  */
 
 export interface ExtractedSymbol {
   name: string;
-  kind: string;        // function|class|method|type|interface|constant|import|export
+  kind: string;        // function|class|method|type|interface|constant|signal|import|export
   startLine: number;   // 1-indexed
   endLine: number;
   signature?: string;
@@ -19,23 +19,28 @@ export interface ExtractedSymbol {
   doc?: string;
 }
 
-// Node types → symbol kind. Covers TS/JS/Python/Go/Rust/Java/Ruby/PHP/C/C++.
+// Node types → symbol kind. Covers TS/JS/Python/Go/Rust/Java/Ruby/PHP/C/C++/GDScript.
 const SYMBOL_TYPES: Record<string, string> = {
   function_declaration: "function",
   function_definition: "function",
   method_definition: "method",
   method_declaration: "method",
   function_signature: "function",
+  constructor_definition: "function",
   class_declaration: "class",
   class_definition: "class",
+  class_name_statement: "class",
   interface_declaration: "interface",
   interface_statement: "interface",
   type_alias_declaration: "type",
   type_definition: "type",
   enum_declaration: "type",
   enum_statement: "type",
+  enum_definition: "type",
   lexical_declaration: "constant",
   variable_declaration: "constant",
+  const_statement: "constant",
+  signal_statement: "signal",
   import_statement: "import",
   import_declaration: "import",
   import_from_statement: "import",
@@ -57,8 +62,11 @@ export function extractSymbols(path: string, lang: string, source: string): Extr
   }
   const out: ExtractedSymbol[] = [];
   const root = tree.rootNode;
+  const gdscriptPublic = lang === "gdscript"; // GDScript: no visibility modifiers → everything public
 
   function nodeName(node: Parser.SyntaxNode): string | null {
+    // GDScript `func _init()` parses as constructor_definition with no name field.
+    if (node.type === "constructor_definition") return "_init";
     const nameNode = (node as unknown as { childForFieldName?: (f: string) => Parser.SyntaxNode | null }).childForFieldName?.("name");
     if (nameNode) return nameNode.text;
     for (const c of node.namedChildren) {
@@ -68,6 +76,7 @@ export function extractSymbols(path: string, lang: string, source: string): Extr
   }
 
   function isExported(node: Parser.SyntaxNode): boolean {
+    if (gdscriptPublic) return true;
     if (EXPORT_WRAPPERS.has(node.type)) return true;
     if (node.parent && EXPORT_WRAPPERS.has(node.parent.type)) return true;
     const text = node.text;

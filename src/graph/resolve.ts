@@ -53,6 +53,35 @@ export function resolveImport(fromPath: string, spec: string, knownFiles: Set<st
   return null;
 }
 
+/**
+ * Godot `res://` path resolution.
+ *
+ * Strips `res://` prefix and treats remainder as repo-relative path.
+ * Tries exact match, then common Godot extensions, then filesystem.
+ * Returns null if unresolved (no edge — better than wrong edge).
+ */
+const GODOT_RESOURCE_EXTS = [".gd", ".tscn", ".tres", ".res", ".import", ".gltf", ".glb", ".png", ".svg", ".wav", ".ogg", ".mp3"];
+
+export function resolveGodotPath(resPath: string, repoRoot: string, knownFiles: Set<string>): string | null {
+  if (!resPath.startsWith("res://")) return null;
+  const rel = resPath.slice(6); // strip "res://"
+  // Try exact match
+  if (knownFiles.has(rel)) return rel;
+  // Try filesystem
+  const abs = join(repoRoot, rel);
+  if (existsSync(abs) && statSync(abs).isFile()) return rel;
+  // Try appending common Godot extensions (for bare script refs)
+  if (posix.extname(rel) === "") {
+    for (const ext of GODOT_RESOURCE_EXTS) {
+      const cand = rel + ext;
+      if (knownFiles.has(cand)) return cand;
+      const a = join(repoRoot, cand);
+      if (existsSync(a) && statSync(a).isFile()) return cand;
+    }
+  }
+  return null;
+}
+
 /** Filesystem-backed resolution when knownFiles is incomplete. */
 export function resolveImportFs(repoRoot: string, fromPath: string, spec: string): string | null {
   if (!isRelative(spec)) return null;

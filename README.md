@@ -62,6 +62,16 @@ codelens upgrade           # git pull + rebuild
 curl -fsSL https://raw.githubusercontent.com/ex-git/codeLens/main/install.sh | sh -s -- --uninstall
 ```
 
+### Native dependency note
+
+`tree-sitter-gdscript` requires a C++20 compiler. If your default compiler is older, set CXXFLAGS before install:
+
+```bash
+CXXFLAGS="-std=c++20" npm install
+```
+
+The standalone installer (`install.sh`) handles this automatically.
+
 > Note on clients/LLMs: MCP clients (Claude Code, Cursor, …) bring their own
 > model — CodeLens has no LLM and configures none. The installer only wires the
 > MCP server + routing instructions into each host's config.
