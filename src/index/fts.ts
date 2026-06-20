@@ -6,7 +6,7 @@ import { resolveReal } from "../util/paths.js";
 import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
 import { extractSymbols, type ExtractedSymbol } from "../graph/symbols.js";
-import { extractEdges, extractGDScriptClassNames, insertEdges, type ExtractedEdge } from "../graph/edges.js";
+import { extractEdges, insertEdges, type ExtractedEdge } from "../graph/edges.js";
 import { isTestFile, resolveTestTargets } from "../graph/tests.js";
 
 /**

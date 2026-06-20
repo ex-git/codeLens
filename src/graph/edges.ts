@@ -162,9 +162,9 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
   const gdResolve = (spec: string | null): string | null => {
     if (!spec) return null;
     // Try res:// resolution first
-    if (resolveGodotPath(spec, repoRoot, knownFiles)) return resolveGodotPath(spec, repoRoot, knownFiles)!;
+    const r = resolveGodotPath(spec, repoRoot, knownFiles); if (r) return r;
     // Try standard import resolution
-    if (resolveImport(path, spec, knownFiles)) return resolveImport(path, spec, knownFiles)!;
+    const r2 = resolveImport(path, spec, knownFiles); if (r2) return r2;
     // Try class_name registry (for `extends ClassName`)
     if (classNameMap?.has(spec)) return classNameMap.get(spec)!;
     return null;
@@ -214,7 +214,7 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
       if (stringChild) {
         const extText = stripQuotes(stringChild.text);
         const target = gdResolve(extText);
-                  if (target && !importsSeen.has(target)) {
+                if (target && !importsSeen.has(target)) {
           importsSeen.add(target);
           out.push({ fromPath: path, toPath: target, fromSymbol: null, toSymbol: null, type: "imports", confidence: 0.9 });
         }
