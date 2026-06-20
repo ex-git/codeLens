@@ -3,12 +3,14 @@ import { resolveGodotPath } from "../src/graph/resolve.js";
 import { extractEdges, extractGDScriptClassNames, insertEdges } from "../src/graph/edges.js";
 import { openMemoryDb } from "../src/db/db.js";
 import { getOrCreateIndex } from "../src/index/manager.js";
-import { buildIndex } from "../src/index/indexer.js";
+import { buildIndex, buildGDScriptClassNameMap } from "../src/index/indexer.js";
+import { scanFiles } from "../src/index/scanner.js";
 import { detectScope, type GitScope } from "../src/git/scope.js";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 describe("resolveGodotPath", () => {
   it("strips res:// and resolves exact match", () => {
@@ -286,5 +288,42 @@ func _ready():
     ).get(r.indexId, "scripts/player_extends.gd") as { to_path: string } | undefined;
     expect(imp?.to_path).toBe("scripts/character.gd");
     db.close();
+  });
+});
+
+describe("buildGDScriptClassNameMap", () => {
+  it("duplicate class_name resolves deterministically (alphabetically first) with warning", async () => {
+    const tmp = join(tmpdir(), `cl-test-${crypto.randomUUID()}`);
+    mkdirSync(join(tmp, "a"), { recursive: true });
+    mkdirSync(join(tmp, "b"), { recursive: true });
+
+    // Two files with same class_name
+    writeFileSync(join(tmp, "b", "z_script.gd"), `class_name MyEntity
+extends Node
+`);
+    writeFileSync(join(tmp, "a", "a_script.gd"), `class_name MyEntity
+extends Node
+`);
+
+    // Capture console.warn
+    const warns: string[] = [];
+    const origWarn = console.warn;
+    console.warn = (...args: unknown[]) => warns.push(args.join(" "));
+    try {
+      const files = await scanFiles(tmp);
+      const map = buildGDScriptClassNameMap(files, tmp);
+
+      // Warning logged
+      expect(warns.length).toBe(1);
+      expect(warns[0]).toContain("Duplicate class_name");
+      expect(warns[0]).toContain("MyEntity");
+
+      // Alphabetically first path wins
+      expect(map.get("MyEntity")).toBe("a/a_script.gd");
+    } finally {
+      console.warn = origWarn;
+    }
+
+    rmSync(tmp, { recursive: true, force: true });
   });
 });

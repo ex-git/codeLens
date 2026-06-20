@@ -66,18 +66,30 @@ export type { ScannedFile };
  * Enables cross-file resolution of `extends ClassName` patterns.
  */
 export function buildGDScriptClassNameMap(files: ScannedFile[], repoRoot: string): Map<string, string> {
-  const map = new Map<string, string>();
+  const multiMap = new Map<string, string[]>();
   for (const f of files) {
     if (f.language !== "gdscript") continue;
     const abs = posix.join(repoRoot, f.path);
     try {
       const source = readFileSync(abs, "utf-8");
       for (const name of extractGDScriptClassNames(source)) {
-        map.set(name, f.path);
+        const paths = multiMap.get(name);
+        if (paths) {
+          paths.push(f.path);
+        } else {
+          multiMap.set(name, [f.path]);
+        }
       }
     } catch {
       // Skip unreadable files
     }
+  }
+  const map = new Map<string, string>();
+  for (const [name, paths] of multiMap) {
+    if (paths.length > 1) {
+      console.warn(`Duplicate class_name "${name}" in: ${paths.join(", ")}`);
+    }
+    map.set(name, paths.sort()[0]!); // deterministic: alphabetically first
   }
   return map;
 }
