@@ -42,7 +42,7 @@ describe("GDScript extractEdges — preload", () => {
 const weapon = preload("res://scripts/weapon.gd")
 `;
     const edges = extractEdges("player.gd", "gdscript", source, "/tmp", known);
-    const imp = edges.find((e) => e.type === "imports" && e.toPath === "scripts/weapon.gd");
+        const imp = edges.find((e) => e.type === "imports" && e.toPath === "scripts/weapon.gd");
     expect(imp).toBeDefined();
     expect(imp!.confidence).toBe(0.9);
   });
@@ -53,8 +53,9 @@ const weapon = preload("res://scripts/weapon.gd")
 var weapon = load("res://scripts/weapon.gd")
 `;
     const edges = extractEdges("player.gd", "gdscript", source, "/tmp", known);
-    const imp = edges.find((e) => e.type === "imports" && e.toPath === "scripts/weapon.gd");
+const imp = edges.find((e) => e.type === "imports" && e.toPath === "scripts/weapon.gd");
     expect(imp).toBeDefined();
+    expect(imp!.confidence).toBe(0.7);
   });
 
   it("deduplicates multiple preload of same target", () => {

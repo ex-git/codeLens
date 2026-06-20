@@ -214,7 +214,7 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
       if (stringChild) {
         const extText = stripQuotes(stringChild.text);
         const target = gdResolve(extText);
-        if (target && !importsSeen.has(target)) {
+                  if (target && !importsSeen.has(target)) {
           importsSeen.add(target);
           out.push({ fromPath: path, toPath: target, fromSymbol: null, toSymbol: null, type: "imports", confidence: 0.9 });
         }
@@ -239,9 +239,10 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
         const arg = firstStringArg(node);
         if (arg) {
           const target = gdResolve(arg);
-          if (target && !importsSeen.has(target)) {
+if (target && !importsSeen.has(target)) {
             importsSeen.add(target);
-            out.push({ fromPath: path, toPath: target, fromSymbol: null, toSymbol: null, type: "imports", confidence: 0.9 });
+            const conf = fnNode.text === "preload" ? 0.9 : 0.7;
+            out.push({ fromPath: path, toPath: target, fromSymbol: null, toSymbol: null, type: "imports", confidence: conf });
           }
         }
       }
