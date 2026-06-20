@@ -43,6 +43,17 @@ describe("extractSymbols", () => {
     expect(syms.find((s) => s.name === "Foo" && s.kind === "class")).toBeDefined();
   });
 
+  it("extracts GDScript class_name, signal, enum, const, func", () => {
+    const src = `class_name PlayerController\nextends CharacterBody3D\n\nsignal health_changed(new_health: float)\n\nenum Direction { UP, DOWN }\n\nconst MAX_SPEED = 100\n\nfunc _ready():\n    pass\n\nfunc take_damage(amount: float) -> void:\n    pass\n`;
+    const syms = extractSymbols("player.gd", "gdscript", src);
+    expect(syms.find((s) => s.name === "PlayerController" && s.kind === "class")).toBeDefined();
+    expect(syms.find((s) => s.name === "health_changed" && s.kind === "signal")).toBeDefined();
+    expect(syms.find((s) => s.name === "Direction" && s.kind === "type")).toBeDefined();
+    expect(syms.find((s) => s.name === "MAX_SPEED" && s.kind === "constant")).toBeDefined();
+    expect(syms.find((s) => s.name === "_ready" && s.kind === "function")).toBeDefined();
+    expect(syms.find((s) => s.name === "take_damage" && s.kind === "function")).toBeDefined();
+  });
+
   it("returns [] for unsupported language (graceful fallback)", () => {
     const syms = extractSymbols("a.txt", "plaintext", "no symbols here");
     expect(syms).toEqual([]);
