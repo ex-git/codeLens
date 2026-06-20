@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { openMemoryDb } from "../src/db/db.js";
 import { diffFiles, contentChanged } from "../src/index/freshness.js";
+import { CHUNKER_VERSION } from "../src/index/fts.js";
 import { buildIndex } from "../src/index/indexer.js";
 import { scanFiles, type ScannedFile } from "../src/index/scanner.js";
 import { detectScope } from "../src/git/scope.js";
@@ -80,6 +81,24 @@ describe("diffFiles", () => {
     const d = diffFiles(db, indexId, scanFiles(repo), repo);
     expect(d.deleted.map((f) => f.path)).toContain("src/b.ts");
     writeFileSync(join(repo, "src", "b.ts"), "export const b = 1;\n"); // restore
+    db.close();
+  });
+
+  it("detects unchanged file with any stale chunker version", () => {
+    const db = openMemoryDb();
+    const { indexId } = reindex(db);
+    expect(
+      db.prepare("SELECT DISTINCT chunker_version FROM chunks WHERE index_id = ? AND path = ?")
+        .all(indexId, "src/a.ts"),
+    ).toEqual([{ chunker_version: CHUNKER_VERSION }]);
+    db.prepare(
+      `UPDATE chunks SET chunker_version = NULL
+       WHERE id = (SELECT id FROM chunks WHERE index_id = ? AND path = ? LIMIT 1)`,
+    ).run(indexId, "src/a.ts");
+
+    const d = diffFiles(db, indexId, scanFiles(repo), repo);
+    expect(d.changed.map((f) => f.path)).toContain("src/a.ts");
+    expect(d.unchanged.map((f) => f.path)).not.toContain("src/a.ts");
     db.close();
   });
 });

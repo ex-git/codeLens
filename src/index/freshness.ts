@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { resolveReal } from "../util/paths.js";
 import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
+import { CHUNKER_VERSION } from "./fts.js";
 
 /**
  * Freshness checker (Design Decision: freshness).
@@ -36,6 +37,17 @@ function loadStored(db: Database.Database, indexId: string): Map<string, StoredF
   return new Map(rows.map((r) => [r.path, r]));
 }
 
+/** Paths with at least one chunk produced by an older or unknown chunker. */
+function loadStaleChunkPaths(db: Database.Database, indexId: string): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT path FROM chunks
+       WHERE index_id = ? AND (chunker_version IS NULL OR chunker_version < ?)`,
+    )
+    .all(indexId, CHUNKER_VERSION) as { path: string }[];
+  return new Set(rows.map((r) => r.path));
+}
+
 /**
  * Diff scanned files vs stored rows. Fast path: skip hashing when size AND
  * mtime match. Changed/new files are flagged for reindex (hashing happens
@@ -43,6 +55,7 @@ function loadStored(db: Database.Database, indexId: string): Map<string, StoredF
  */
 export function diffFiles(db: Database.Database, indexId: string, scanned: ScannedFile[], repoRoot: string): FreshnessDiff {
   const stored = loadStored(db, indexId);
+  const staleChunkPaths = loadStaleChunkPaths(db, indexId);
   const scannedByPath = new Map(scanned.map((f) => [f.path, f]));
   const unchanged: ScannedFile[] = [];
   const changed: ScannedFile[] = [];
@@ -53,6 +66,8 @@ export function diffFiles(db: Database.Database, indexId: string, scanned: Scann
     const s = stored.get(f.path);
     if (!s) {
       newFiles.push(f);
+    } else if (staleChunkPaths.has(f.path)) {
+      changed.push(f);
     } else if (s.size === f.size && s.mtime_ms === f.mtimeMs) {
       unchanged.push(f);
     } else {

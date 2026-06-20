@@ -47,7 +47,7 @@ function ftsQuery(query: string): string {
   return terms.map((t) => `"${t}"`).join(" OR ");
 }
 
-interface FtsRow { path: string; startLine: number; endLine: number; content: string; chunkId: string; rank: number; contentType: string; }
+interface FtsRow { path: string; startLine: number; endLine: number; content: string; chunkId: string; symbolId: string | null; rank: number; contentType: string; }
 
 function gatherFts(db: Database.Database, indexId: string, fts: string, limit: number, contentType?: "code" | "prose"): FtsRow[] {
   const typeClause = contentType ? " AND c.content_type = ?" : "";
@@ -55,7 +55,7 @@ function gatherFts(db: Database.Database, indexId: string, fts: string, limit: n
   return db
     .prepare(
       `SELECT c.path AS path, c.start_line AS startLine, c.end_line AS endLine,
-              c.content AS content, c.id AS chunkId, c.content_type AS contentType,
+              c.content AS content, c.id AS chunkId, c.symbol_id AS symbolId, c.content_type AS contentType,
               bm25(chunks_fts) AS rank
        FROM chunks_fts
        JOIN chunks c ON c.id = chunks_fts.chunk_id
@@ -75,6 +75,10 @@ function buildSignals(db: Database.Database, indexId: string, query: string, fts
   const exactStmt = db.prepare(
     `SELECT 1 FROM symbols WHERE index_id = ? AND path = ? AND lower(name) = ? LIMIT 1`,
   );
+  const chunkSymbolStmt = db.prepare(
+    `SELECT lower(name) AS name FROM symbols WHERE index_id = ? AND id = ? LIMIT 1`,
+  );
+  const symbolNameById = new Map<string, string | null>();
   const topPaths = new Set(ftsRows.slice(0, 8).map((r) => r.path));
   const graphPaths = new Set<string>();
   for (const p of topPaths) {
@@ -85,8 +89,20 @@ function buildSignals(db: Database.Database, indexId: string, query: string, fts
     } catch { /* ignore */ }
   }
   return ftsRows.map((r, i) => {
-    const symMatch = terms.some((t) => !!symbolStmt.get(indexId, r.path, "%" + t + "%"));
-    const exactMatch = terms.some((t) => !!exactStmt.get(indexId, r.path, t));
+    let chunkSymbolName: string | null = null;
+    if (r.symbolId) {
+      if (!symbolNameById.has(r.symbolId)) {
+        const row = chunkSymbolStmt.get(indexId, r.symbolId) as { name: string } | undefined;
+        symbolNameById.set(r.symbolId, row?.name ?? null);
+      }
+      chunkSymbolName = symbolNameById.get(r.symbolId) ?? null;
+    }
+    const chunkSymMatch = !!chunkSymbolName && terms.some((t) => chunkSymbolName.includes(t));
+    const chunkExactMatch = !!chunkSymbolName && terms.some((t) => chunkSymbolName === t);
+    const fileSymMatch = terms.some((t) => !!symbolStmt.get(indexId, r.path, "%" + t + "%"));
+    const fileExactMatch = terms.some((t) => !!exactStmt.get(indexId, r.path, t));
+    const symMatch = chunkSymMatch ? 1 : (fileSymMatch ? 0.5 : 0);
+    const exactMatch = chunkExactMatch ? 1 : (fileExactMatch ? 0.5 : 0);
     const pathLower = r.path.toLowerCase();
     const pathMatch = terms.some((t) => pathLower.includes(t));
     return {
@@ -95,8 +111,8 @@ function buildSignals(db: Database.Database, indexId: string, query: string, fts
       endLine: r.endLine,
       chunkId: r.chunkId,
       fts: ftsNorm[i],
-      symbol: symMatch ? 1 : 0,
-      exact: exactMatch ? 1 : 0,
+      symbol: symMatch,
+      exact: exactMatch,
       graph: graphPaths.has(r.path) ? 1 : 0,
       pathHit: pathMatch ? 1 : 0,
       code: r.contentType === "code" ? 1 : 0,

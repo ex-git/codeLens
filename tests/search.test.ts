@@ -22,6 +22,8 @@ beforeAll(() => {
     "export function validateSession(token: string): boolean {\n  return token.length > 0;\n}\n");
   writeFileSync(join(repo, "src", "auth", "auth.ts"),
     "import { validateSession } from './session.js';\nexport const ok = validateSession('x');\n");
+  writeFileSync(join(repo, "src", "auth", "multi.ts"),
+    "export function targetHandler() {\n  return 'sharedToken';\n}\n\nexport function otherHandler() {\n  return 'sharedToken targetHandler';\n}\n");
   execSync("git add -A && git commit -q -m init", { cwd: repo });
   scope = detectScope(repo);
 });
@@ -102,6 +104,17 @@ describe("ctxSearch", () => {
     buildIndex(db, scope!);
     const r = ctxSearch(db, "validateSession");
     expect(r.results[0]!.snippet).toContain("**validateSession**");
+    db.close();
+  });
+
+  it("ranks the matching symbol chunk above sibling chunks from the same file", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxSearch(db, "targetHandler sharedToken", { limit: 10, snippet: "none" });
+    const multi = r.results.filter((x) => x.path === "src/auth/multi.ts");
+    expect(multi.length).toBeGreaterThanOrEqual(2);
+    expect(multi[0]).toMatchObject({ startLine: 1, endLine: 3 });
+    expect(multi[0]!.why).toEqual(expect.arrayContaining(["symbol", "exact"]));
     db.close();
   });
 });

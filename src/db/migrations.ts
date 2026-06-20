@@ -30,6 +30,14 @@ export interface Migration {
 /** v1 migration: create the full initial schema. */
 export const MIGRATIONS: Migration[] = [
   { version: 1, description: "initial schema", sql: SCHEMA_V1 },
+  {
+    version: 2,
+    description: "chunker metadata",
+    sql: `
+      ALTER TABLE chunks ADD COLUMN chunker TEXT;
+      ALTER TABLE chunks ADD COLUMN chunker_version INTEGER;
+    `,
+  },
 ];
 
 export const CODE_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

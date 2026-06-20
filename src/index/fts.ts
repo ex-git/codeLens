@@ -18,6 +18,43 @@ import { isTestFile, resolveTestTargets } from "../graph/tests.js";
  */
 
 const CHUNK_CHARS = 2000; // ~500 tokens at ~4 chars/token
+const DEFAULT_CHUNK_OVERLAP_CHARS = 100;
+const STRUCTURAL_CHUNK_MAX_BYTES = 512 * 1024;
+
+export const CHUNKER_VERSION = 1;
+export const CHUNKER_NAMES = {
+  line: "line",
+  structural: "structural",
+} as const;
+
+export interface TextChunk {
+  startLine: number;
+  endLine: number;
+  content: string;
+}
+
+export interface StructuredChunk extends TextChunk {
+  symbolName?: string;
+  symbolKind?: string;
+  symbolRangeKey?: string;
+}
+
+export interface ChunkTextOptions {
+  maxChars?: number;
+  overlapChars?: number;
+}
+
+export interface ChunkStructuredOptions extends ChunkTextOptions {
+  maxBytes?: number;
+}
+
+interface NormalizedSymbol {
+  name: string;
+  kind: string;
+  startLine: number;
+  endLine: number;
+  rangeKey: string;
+}
 
 export interface IndexResult {
   fileId: string;
@@ -33,27 +70,197 @@ function readFileText(absPath: string): string {
 }
 
 /** Split text into line-bounded chunks of roughly CHUNK_CHARS characters. */
-export function chunkText(text: string): { startLine: number; endLine: number; content: string }[] {
+export function chunkText(text: string, opts: ChunkTextOptions = {}): TextChunk[] {
+  return chunkLines(text.split("\n"), 1, opts);
+}
+
+/**
+ * Split code along outermost symbol ranges while preserving complete primary
+ * line ownership. Parser/range failures are quality issues, never index blockers;
+ * callers can fall back to chunkText when this returns null.
+ */
+export function chunkStructured(
+  text: string,
+  symbols: ExtractedSymbol[],
+  opts: ChunkStructuredOptions = {},
+): StructuredChunk[] | null {
+  const maxBytes = opts.maxBytes ?? STRUCTURAL_CHUNK_MAX_BYTES;
+  if (Buffer.byteLength(text, "utf8") > maxBytes) return null;
+
+  if (symbols.length === 0) return chunkText(text, opts);
+
   const lines = text.split("\n");
-  const chunks: { startLine: number; endLine: number; content: string }[] = [];
+  const normalized = normalizeSymbols(symbols, lines.length);
+  if (normalized.length === 0) return chunkText(text, opts);
+
+  const chunks: StructuredChunk[] = [];
+  let cursor = 1;
+  for (const sym of normalized) {
+    let symbolStart = findLeadingCommentStart(lines, sym.startLine, cursor);
+    if (symbolStart < cursor) symbolStart = cursor;
+
+    if (cursor < symbolStart) {
+      chunks.push(...chunkLineRange(lines, cursor, symbolStart - 1, opts));
+    }
+
+    const symbolChunks = chunkLineRange(lines, symbolStart, sym.endLine, opts).map((chunk) => ({
+      ...chunk,
+      symbolName: sym.name,
+      symbolKind: sym.kind,
+      symbolRangeKey: sym.rangeKey,
+    }));
+    chunks.push(...symbolChunks);
+    cursor = sym.endLine + 1;
+  }
+
+  if (cursor <= lines.length) {
+    chunks.push(...chunkLineRange(lines, cursor, lines.length, opts));
+  }
+
+  return rangesAreUnique(chunks) ? chunks : null;
+}
+
+function chunkLineRange(lines: string[], startLine: number, endLine: number, opts: ChunkTextOptions): TextChunk[] {
+  if (startLine > endLine) return [];
+  const slice = lines.slice(startLine - 1, endLine);
+  return chunkLines(slice, startLine, opts);
+}
+
+function chunkLines(lines: string[], startLine: number, opts: ChunkTextOptions): TextChunk[] {
+  const maxChars = Math.max(1, opts.maxChars ?? CHUNK_CHARS);
+  const overlapChars = Math.min(Math.max(0, opts.overlapChars ?? DEFAULT_CHUNK_OVERLAP_CHARS), Math.max(0, maxChars - 1));
+  const chunks: TextChunk[] = [];
   let buf: string[] = [];
   let bufChars = 0;
-  let startLine = 1;
+  let bufStartOffset = 0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     buf.push(line);
     bufChars += line.length + 1;
-    if (bufChars >= CHUNK_CHARS) {
-      chunks.push({ startLine, endLine: i + 1, content: buf.join("\n") });
-      buf = [];
-      bufChars = 0;
-      startLine = i + 2;
+    if (bufChars >= maxChars) {
+      chunks.push({ startLine: startLine + bufStartOffset, endLine: startLine + i, content: buf.join("\n") });
+      const keepFrom = overlapStartIndex(buf, overlapChars);
+      buf = buf.slice(keepFrom);
+      bufStartOffset += keepFrom;
+      bufChars = charCount(buf);
     }
   }
+
   if (buf.length > 0) {
-    chunks.push({ startLine, endLine: lines.length, content: buf.join("\n") });
+    const finalChunk = {
+      startLine: startLine + bufStartOffset,
+      endLine: startLine + lines.length - 1,
+      content: buf.join("\n"),
+    };
+    const last = chunks[chunks.length - 1];
+    if (!last || last.startLine !== finalChunk.startLine || last.endLine !== finalChunk.endLine) {
+      chunks.push(finalChunk);
+    }
   }
+
   return chunks;
+}
+
+function overlapStartIndex(lines: string[], overlapChars: number): number {
+  if (overlapChars <= 0) return lines.length;
+  let chars = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    chars += lines[i]!.length + 1;
+    if (chars >= overlapChars) return i;
+  }
+  return 0;
+}
+
+function charCount(lines: string[]): number {
+  return lines.reduce((sum, line) => sum + line.length + 1, 0);
+}
+
+function normalizeSymbols(symbols: ExtractedSymbol[], lineCount: number): NormalizedSymbol[] {
+  const candidates = symbols
+    .map((sym) => {
+      if (sym.startLine <= 0 || sym.endLine <= 0 || sym.startLine > lineCount) return null;
+      const startLine = sym.startLine;
+      const endLine = Math.min(sym.endLine, lineCount);
+      if (endLine < startLine) return null;
+      return {
+        name: sym.name,
+        kind: sym.kind,
+        startLine,
+        endLine,
+        rangeKey: chunkSymbolRangeKey({ ...sym, startLine, endLine }),
+      } satisfies NormalizedSymbol;
+    })
+    .filter((sym): sym is NormalizedSymbol => sym !== null)
+    .sort((a, b) => a.startLine - b.startLine || b.endLine - a.endLine || a.name.localeCompare(b.name));
+
+  const kept: NormalizedSymbol[] = [];
+  for (const sym of candidates) {
+    if (kept.some((prior) => prior.startLine <= sym.startLine && prior.endLine >= sym.endLine)) continue;
+    if (kept.some((prior) => rangesOverlap(prior, sym))) continue;
+    kept.push(sym);
+  }
+  return kept;
+}
+
+export function chunkSymbolRangeKey(sym: Pick<ExtractedSymbol, "name" | "kind" | "startLine" | "endLine">, lineCount?: number): string {
+  const endLine = lineCount ? Math.min(sym.endLine, lineCount) : sym.endLine;
+  return `${sym.startLine}:${endLine}:${sym.kind}:${sym.name}`;
+}
+
+function rangesOverlap(a: { startLine: number; endLine: number }, b: { startLine: number; endLine: number }): boolean {
+  return a.startLine <= b.endLine && b.startLine <= a.endLine;
+}
+
+function findLeadingCommentStart(lines: string[], symbolStartLine: number, lowerBound: number): number {
+  let lineNo = symbolStartLine - 1;
+  let start = symbolStartLine;
+  while (lineNo >= lowerBound) {
+    const text = lines[lineNo - 1]!.trim();
+    if (text === "") break;
+    if (text.endsWith("*/")) {
+      start = lineNo;
+      lineNo--;
+      while (lineNo >= lowerBound) {
+        start = lineNo;
+        const inner = lines[lineNo - 1]!.trim();
+        if (inner.includes("/*")) {
+          lineNo--;
+          break;
+        }
+        lineNo--;
+      }
+      continue;
+    }
+    if (isLeadingCommentOrDecorator(text)) {
+      start = lineNo;
+      lineNo--;
+      continue;
+    }
+    break;
+  }
+  return start;
+}
+
+function isLeadingCommentOrDecorator(trimmedLine: string): boolean {
+  return trimmedLine.startsWith("//") ||
+    trimmedLine.startsWith("#") ||
+    trimmedLine.startsWith("*") ||
+    trimmedLine.startsWith("/*") ||
+    trimmedLine.startsWith("<!--") ||
+    trimmedLine.startsWith("@") ||
+    trimmedLine.startsWith("\"\"\"") ||
+    trimmedLine.startsWith("'''");
+}
+
+function rangesAreUnique(chunks: TextChunk[]): boolean {
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    const key = `${chunk.startLine}:${chunk.endLine}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
 }
 
 /**
@@ -67,9 +274,21 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
   const hash = contentHash(text);
   const fileId = "file_" + randomUUID();
 
-  const chunks = chunkText(text);
-  const symbols = extractSymbols(file.path, file.language ?? "", text);
-  const edges = extractEdges(file.path, file.language ?? "", text, root, knownFiles);
+  const parserEligible = Buffer.byteLength(text, "utf8") <= STRUCTURAL_CHUNK_MAX_BYTES;
+  const symbols = parserEligible ? extractSymbols(file.path, file.language ?? "", text) : [];
+  const edges = parserEligible ? extractEdges(file.path, file.language ?? "", text, root, knownFiles) : [];
+  const lineCount = text.split("\n").length;
+  const symbolRows = symbols.map((sym) => ({
+    id: "sym_" + randomUUID(),
+    sym,
+    rangeKey: chunkSymbolRangeKey(sym, lineCount),
+  }));
+  const symbolIdByRange = new Map<string, string>();
+  for (const row of symbolRows) {
+    if (!symbolIdByRange.has(row.rangeKey)) symbolIdByRange.set(row.rangeKey, row.id);
+  }
+  const structured = parserEligible && symbols.length > 0 ? chunkStructured(text, symbols) : null;
+  const chunks: StructuredChunk[] = structured && structured.length > 0 ? structured : chunkText(text);
 
   const tx = db.transaction(() => {
     // Remove ALL prior rows for this path+index so reindexing a changed file
@@ -90,33 +309,36 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     ).run(fileId, indexId, file.path, file.language, file.size, file.mtimeMs, hash, Date.now());
 
     const insertChunk = db.prepare(
-      `INSERT INTO chunks (id, index_id, file_id, symbol_id, path, start_line, end_line, content, content_hash, content_type)
-       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO chunks (id, index_id, file_id, symbol_id, path, start_line, end_line, content, content_hash, content_type, chunker, chunker_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = db.prepare(
       `INSERT INTO chunks_fts (content, path, index_id, chunk_id) VALUES (?, ?, ?, ?)`,
     );
+    // Symbols (Step 13) — insert before chunks so chunks can reference symbol_id.
+    const insertSymbol = db.prepare(
+      `INSERT INTO symbols (id, index_id, file_id, path, name, kind, signature, start_line, end_line, exported, doc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    );
+    for (const row of symbolRows) {
+      const sym = row.sym;
+      insertSymbol.run(
+        row.id, indexId, fileId, file.path,
+        sym.name, sym.kind, sym.signature ?? null, sym.startLine, sym.endLine,
+        sym.exported ? 1 : 0,
+      );
+    }
+
     for (const c of chunks) {
       const chunkId = "chk_" + randomUUID();
       const cHash = contentHash(c.content);
       const ctype = file.language && ["typescript", "javascript", "python", "go", "rust", "java", "c", "cpp"].includes(file.language)
         ? "code"
         : "prose";
-      insertChunk.run(chunkId, indexId, fileId, file.path, c.startLine, c.endLine, c.content, cHash, ctype);
+      const symbolId = c.symbolRangeKey ? symbolIdByRange.get(c.symbolRangeKey) ?? null : null;
+      const chunker = symbolId ? CHUNKER_NAMES.structural : CHUNKER_NAMES.line;
+      insertChunk.run(chunkId, indexId, fileId, symbolId, file.path, c.startLine, c.endLine, c.content, cHash, ctype, chunker, CHUNKER_VERSION);
       insertFts.run(c.content, file.path, indexId, chunkId);
-    }
-
-    // Symbols (Step 13)
-    const insertSymbol = db.prepare(
-      `INSERT INTO symbols (id, index_id, file_id, path, name, kind, signature, start_line, end_line, exported, doc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-    );
-    for (const sym of symbols) {
-      insertSymbol.run(
-        "sym_" + randomUUID(), indexId, fileId, file.path,
-        sym.name, sym.kind, sym.signature ?? null, sym.startLine, sym.endLine,
-        sym.exported ? 1 : 0,
-      );
     }
 
     // Edges: imports (file→file) from extractEdges; defines/belongs_to

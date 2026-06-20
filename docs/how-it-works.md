@@ -16,7 +16,7 @@ CodeLens MCP server  ──▶  CLI (codelens <subcommand>)
    ├── Git scope detector        (repo / worktree / branch / HEAD / dirty)
    ├── Index manager             (per-branch index identity)
    ├── File scanner              (.gitignore-aware, binary/size filters)
-   ├── FTS5 indexer              (line-bounded chunks + content hash)
+   ├── FTS5 indexer              (structure-aware chunks + content hash)
    ├── Tree-sitter symbol extractor (11 grammars, text fallback)
    ├── Source graph builder      (imports / defines / tests / belongs_to)
    ├── Graph query (recursive CTE + bounded BFS)
@@ -35,8 +35,14 @@ SQLite
 ## The index layers
 
 1. **Files**: path, language, size, mtime, content hash.
-2. **FTS5 lexical**: line-bounded chunks (~2000 chars) with Porter-stemming;
-   BM25 ranking. Chunks tagged `code` vs `prose`.
+2. **FTS5 lexical**: structure-aware code chunks with line-based fallback and
+   Porter-stemming/BM25 ranking. Code files with extractable symbols are chunked
+   around outermost functions/classes/types; oversized symbols and non-structural
+   gaps (imports, top-level statements, inter-symbol regions) are line-chunked.
+   Leading comment/decorator blocks are attached to the following symbol chunk.
+   Line fallback uses small overlap to reduce boundary loss. Chunks carry
+   `code` vs `prose`, `chunker`, `chunker_version`, and `symbol_id` when aligned
+   to a symbol.
 3. **Symbols** (tree-sitter): functions/classes/methods/types/exports/imports
    with line ranges + signatures + exported flag. 11 grammars shipped; unknown
    languages fall back to text-only FTS.
@@ -63,9 +69,12 @@ Before each `cl_search`, `ensureFreshIndex` runs:
 1. Detect current git scope → activate/create the branch index.
 2. Scan files, diff `mtime`+`size` vs indexed rows (fast); hash only
    changed/suspicious files.
-3. Reindex changed/new files in per-file transactions; drop deleted.
+3. Reindex changed/new files in per-file transactions; drop deleted. Files with
+   chunks from an older/unknown `chunker_version` are also treated as changed, so
+   chunker improvements roll forward on the next refresh.
 4. Budget-bounded (default 500ms); if incomplete, surface
-   `freshness:"partial"` + `pendingFiles`.
+   `freshness:"partial"` + `pendingFiles`. A chunker-version bump can require a
+   full budget-bounded re-chunk over several refresh cycles.
 
 `cl_expand` **always reads current disk** (never stale stored text). A file
 watcher (server mode) short-circuits the scan when nothing changed, with a 5s
@@ -77,16 +86,21 @@ inject a new symbol → next search finds it.
 
 ## Ranking (hybrid)
 
-`cl_search` fuses three signals with weights summing to 1:
+`cl_search` fuses lexical, structural, graph, path, and code/prose signals with
+weights from `src/search/rank.ts`:
 
 ```
-score = fts×0.40 + symbol×0.22 + graph×0.28 + code×0.10
+score = fts×0.34 + symbol×0.18 + graph×0.22 + code×0.08 + path×0.08 + exact×0.10
 ```
 
 - `fts`: BM25 normalized.
-- `symbol`: 1 if a symbol name matches a query term.
-- `graph`: 1 if the file has graph edges (it's a connected node).
-- `code`: 0.10 boost for `code` chunks over `prose` (docs), so code discovery
+- `symbol`: full signal when the chunk's `symbol_id` name partially matches a
+  query term; lower-strength file-level symbol match is kept as fallback.
+- `exact`: full signal when the chunk's `symbol_id` name exactly matches a query
+  term; lower-strength file-level exact match is kept as fallback.
+- `graph`: 1 if the file is graph-proximate to top lexical results.
+- `path`: query term appears in the file path/name.
+- `code`: modest boost for `code` chunks over `prose` (docs), so code discovery
   isn't drowned out by markdown. Pass `contentType:"code"` to filter to source
   only.
 
