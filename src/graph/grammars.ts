@@ -17,6 +17,7 @@ const GRAMMAR_LOADERS: Record<string, () => Language> = {
   typescript: () => _require("tree-sitter-typescript").typescript as Language,
   javascript: () => _require("tree-sitter-javascript") as Language,
   python: () => _require("tree-sitter-python") as Language,
+  gdscript: () => _require("tree-sitter-gdscript") as Language,
   go: () => _require("tree-sitter-go") as Language,
   rust: () => _require("tree-sitter-rust") as Language,
   java: () => _require("tree-sitter-java") as Language,
