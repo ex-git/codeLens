@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import type { GitScope } from "../git/scope.js";
-import { scanFiles } from "./scanner.js";
+import { scanFiles, type ScannedFile } from "./scanner.js";
 import { diffFiles, type FreshnessDiff } from "./freshness.js";
 import { indexFile, deleteFileFromIndex } from "./fts.js";
 import { buildGDScriptClassNameMap } from "./indexer.js";
@@ -73,7 +73,18 @@ export function ensureFreshIndex(
     const scanned = scanFiles(scope.repoRoot);
     const diff: FreshnessDiff = diffFiles(db, indexId, scanned, scope.repoRoot);
 
-    const toProcess = [...diff.changed, ...diff.newFiles];
+    // If any GDScript file changed/added/deleted, reindex ALL .gd files so
+    // classNameMap propagation correct (extends ClassName resolution, stale edge cleanup).
+    const anyGdChanged = diff.changed.some((f) => f.language === "gdscript") ||
+      diff.newFiles.some((f) => f.language === "gdscript") ||
+      diff.deleted.some((d) => d.path.endsWith(".gd"));
+    const toProcessSet = new Set<ScannedFile>([...diff.changed, ...diff.newFiles]);
+    if (anyGdChanged) {
+      for (const f of scanned) {
+        if (f.language === "gdscript") toProcessSet.add(f);
+      }
+    }
+    const toProcess = [...toProcessSet];
     let refreshed = 0;
     const classNameMap = buildGDScriptClassNameMap(scanned, scope.repoRoot);
     let pending = 0;
