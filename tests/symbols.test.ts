@@ -54,6 +54,13 @@ describe("extractSymbols", () => {
     expect(syms.find((s) => s.name === "take_damage" && s.kind === "function")).toBeDefined();
   });
 
+  it("extracts GDScript _init constructor as a function symbol", () => {
+    const src = `class_name Foo\nextends Node\n\nfunc _init():\n    pass\n\nfunc _ready():\n    pass\n`;
+    const syms = extractSymbols("foo.gd", "gdscript", src);
+    const init = syms.find((s) => s.name === "_init" && s.kind === "function");
+    expect(init).toBeDefined();
+  });
+
   it("returns [] for unsupported language (graceful fallback)", () => {
     const syms = extractSymbols("a.txt", "plaintext", "no symbols here");
     expect(syms).toEqual([]);

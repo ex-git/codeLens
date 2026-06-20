@@ -184,7 +184,7 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
         if (arg) {
           const target = gdResolve(arg);
           if (target) {
-            const parent = findParent(root, node);
+            const parent = node.parent;
             if (parent && (parent.type === "const_statement" || parent.type === "variable_statement")) {
               const nameNode = childField(parent, "name");
               if (nameNode) varBindings.set(nameNode.text, target);
@@ -253,7 +253,7 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
 
     // Method calls on known preload'd vars: `weapon.attack()`
     if (node.type === "attribute_call") {
-      const parent = findParent(root, node);
+      const parent = node.parent;
       if (parent && parent.type === "attribute") {
         const objNode = parent.children[0];
         if (objNode && objNode.type === "identifier" && varBindings.has(objNode.text)) {
@@ -267,19 +267,6 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
       }
     }
   }
-}
-
-/** Find the parent of a node by walking the tree. Returns null if not found. */
-function findParent(root: Parser.SyntaxNode, target: Parser.SyntaxNode): Parser.SyntaxNode | null {
-  function search(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
-    for (const child of node.children) {
-      if (child === target) return node;
-      const found = search(child);
-      if (found) return found;
-    }
-    return null;
-  }
-  return search(root);
 }
 
 /** Insert extracted edges into the edges table (skips unresolved imports). */

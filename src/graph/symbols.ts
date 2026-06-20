@@ -64,6 +64,8 @@ export function extractSymbols(path: string, lang: string, source: string): Extr
   const root = tree.rootNode;
 
   function nodeName(node: Parser.SyntaxNode): string | null {
+    // GDScript `func _init()` parses as constructor_definition with no name field.
+    if (node.type === "constructor_definition") return "_init";
     const nameNode = (node as unknown as { childForFieldName?: (f: string) => Parser.SyntaxNode | null }).childForFieldName?.("name");
     if (nameNode) return nameNode.text;
     for (const c of node.namedChildren) {

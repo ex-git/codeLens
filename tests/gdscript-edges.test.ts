@@ -96,6 +96,18 @@ describe("GDScript extractEdges — extends", () => {
     const imps = edges.filter((e) => e.type === "imports");
     expect(imps).toHaveLength(0);
   });
+
+  // Documents H1: `extends ClassName` does NOT resolve to a file declaring
+  // `class_name ClassName` because resolution is per-file with no cross-file
+  // class_name registry. This is a known gap — fix requires indexer-level work.
+  it("does NOT resolve extends ClassName to a class_name file (known gap, H1)", () => {
+    const known = new Set(["base/character.gd", "player.gd"]);
+    const source = `extends Character
+`;
+    const edges = extractEdges("player.gd", "gdscript", source, "/tmp", known);
+    const imps = edges.filter((e) => e.type === "imports");
+    expect(imps).toHaveLength(0);
+  });
 });
 
 describe("GDScript extractEdges — calls", () => {
