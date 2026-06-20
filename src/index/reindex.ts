@@ -3,6 +3,7 @@ import type { GitScope } from "../git/scope.js";
 import { scanFiles } from "./scanner.js";
 import { diffFiles, type FreshnessDiff } from "./freshness.js";
 import { indexFile, deleteFileFromIndex } from "./fts.js";
+import { buildGDScriptClassNameMap } from "./indexer.js";
 import { getOrCreateIndex } from "./manager.js";
 import { acquireWriteLease, releaseWriteLease, newOwnerId } from "./queue.js";
 import type { FileWatcher } from "./watcher.js";
@@ -74,6 +75,7 @@ export function ensureFreshIndex(
 
     const toProcess = [...diff.changed, ...diff.newFiles];
     let refreshed = 0;
+    const classNameMap = buildGDScriptClassNameMap(scanned, scope.repoRoot);
     let pending = 0;
     for (const f of toProcess) {
       if (Date.now() - start > budget) {
@@ -81,7 +83,7 @@ export function ensureFreshIndex(
         break;
       }
       try {
-        indexFile(db, indexId, scope.repoRoot, f);
+        indexFile(db, indexId, scope.repoRoot, f, new Set(), classNameMap);
         refreshed++;
       } catch {
         // skip unreadable

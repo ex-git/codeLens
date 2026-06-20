@@ -6,7 +6,7 @@ import { resolveReal } from "../util/paths.js";
 import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
 import { extractSymbols, type ExtractedSymbol } from "../graph/symbols.js";
-import { extractEdges, insertEdges, type ExtractedEdge } from "../graph/edges.js";
+import { extractEdges, extractGDScriptClassNames, insertEdges, type ExtractedEdge } from "../graph/edges.js";
 import { isTestFile, resolveTestTargets } from "../graph/tests.js";
 
 /**
@@ -60,7 +60,7 @@ export function chunkText(text: string): { startLine: number; endLine: number; c
  * Index a single file into files + chunks + chunks_fts. Transactional.
  * Caller must pass the active indexId and the scanned file metadata.
  */
-export function indexFile(db: Database.Database, indexId: string, repoRoot: string, file: ScannedFile, knownFiles: Set<string> = new Set()): IndexResult {
+export function indexFile(db: Database.Database, indexId: string, repoRoot: string, file: ScannedFile, knownFiles: Set<string> = new Set(), classNameMap?: Map<string, string>): IndexResult {
   const root = resolveReal(repoRoot);
   const abs = join(root, file.path);
   const text = readFileText(abs);
@@ -69,7 +69,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
 
   const chunks = chunkText(text);
   const symbols = extractSymbols(file.path, file.language ?? "", text);
-  const edges = extractEdges(file.path, file.language ?? "", text, root, knownFiles);
+  const edges = extractEdges(file.path, file.language ?? "", text, root, knownFiles, classNameMap);
 
   const tx = db.transaction(() => {
     // Remove ALL prior rows for this path+index so reindexing a changed file
@@ -99,7 +99,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     for (const c of chunks) {
       const chunkId = "chk_" + randomUUID();
       const cHash = contentHash(c.content);
-      const ctype = file.language && ["typescript", "javascript", "python", "go", "rust", "java", "c", "cpp"].includes(file.language)
+      const ctype = file.language && ["typescript", "javascript", "python", "go", "rust", "java", "c", "cpp", "gdscript"].includes(file.language)
         ? "code"
         : "prose";
       insertChunk.run(chunkId, indexId, fileId, file.path, c.startLine, c.endLine, c.content, cHash, ctype);

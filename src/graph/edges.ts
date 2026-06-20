@@ -72,8 +72,10 @@ function importBindingNames(node: Parser.SyntaxNode): string[] {
 /**
  * Extract edges for a single file. `knownFiles` (repo-relative POSIX set) is
  * used to resolve imports to indexed files; falls back to the filesystem.
+ * `classNameMap` maps GDScript `class_name` declarations to file paths for
+ * cross-file `extends ClassName` resolution.
  */
-export function extractEdges(path: string, lang: string, source: string, repoRoot: string, knownFiles: Set<string>): ExtractedEdge[] {
+export function extractEdges(path: string, lang: string, source: string, repoRoot: string, knownFiles: Set<string>, classNameMap?: Map<string, string>): ExtractedEdge[] {
   const parser = makeParser(lang);
   if (!parser) return [];
   let tree: Parser.Tree;
@@ -111,7 +113,7 @@ export function extractEdges(path: string, lang: string, source: string, repoRoo
 
   // GDScript-specific edge extraction
   if (gd) {
-    extractGDScriptEdges(root, path, repoRoot, knownFiles, out);
+    extractGDScriptEdges(root, path, repoRoot, knownFiles, out, classNameMap);
   }
 
   // Pass 2 (TS/JS only): calls + references resolved THROUGH import bindings, so
@@ -156,9 +158,17 @@ export function extractEdges(path: string, lang: string, source: string, repoRoo
  * - `call` nodes → calls edge for local function definitions
  * - `attribute_call` on known local vars → calls edge
  */
-function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: string, knownFiles: Set<string>, out: ExtractedEdge[]): void {
-  const gdResolve = (spec: string | null): string | null =>
-    spec ? (resolveGodotPath(spec, repoRoot, knownFiles) ?? resolveImport(path, spec, knownFiles)) : null;
+function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: string, knownFiles: Set<string>, out: ExtractedEdge[], classNameMap?: Map<string, string>): void {
+  const gdResolve = (spec: string | null): string | null => {
+    if (!spec) return null;
+    // Try res:// resolution first
+    if (resolveGodotPath(spec, repoRoot, knownFiles)) return resolveGodotPath(spec, repoRoot, knownFiles)!;
+    // Try standard import resolution
+    if (resolveImport(path, spec, knownFiles)) return resolveImport(path, spec, knownFiles)!;
+    // Try class_name registry (for `extends ClassName`)
+    if (classNameMap?.has(spec)) return classNameMap.get(spec)!;
+    return null;
+  };
 
   // Collect locally-defined function names for call resolution
   const localFuncs = new Set<string>();
@@ -209,8 +219,8 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
           out.push({ fromPath: path, toPath: target, fromSymbol: null, toSymbol: null, type: "imports", confidence: 0.9 });
         }
       } else {
-        // Case 2: extends ClassName → child is type → identifier
-        const typeNode = childField(node, "type");
+        // Case 2: extends ClassName → child with type "type" (not a field)
+        const typeNode = node.children.find((c) => c.type === "type");
         if (typeNode) {
           const extText = stripQuotes(typeNode.text);
           const target = gdResolve(extText);
@@ -267,6 +277,30 @@ function extractGDScriptEdges(root: Parser.SyntaxNode, path: string, repoRoot: s
       }
     }
   }
+}
+
+/**
+ * Extract `class_name` declarations from GDScript source.
+ * Returns the declared class names (e.g. ["Weapon", "Player"]).
+ * Used by indexer to build a cross-file class_name → path map.
+ */
+export function extractGDScriptClassNames(source: string): string[] {
+  const parser = makeParser("gdscript");
+  if (!parser) return [];
+  let tree: Parser.Tree;
+  try {
+    tree = parser.parse(source);
+  } catch {
+    return [];
+  }
+  const names: string[] = [];
+  for (const node of iterAll(tree.rootNode)) {
+    if (node.type === "class_name_statement") {
+      const nameNode = childField(node, "name");
+      if (nameNode) names.push(nameNode.text);
+    }
+  }
+  return names;
 }
 
 /** Insert extracted edges into the edges table (skips unresolved imports). */

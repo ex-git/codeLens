@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { resolveGodotPath } from "../src/graph/resolve.js";
-import { extractEdges, insertEdges } from "../src/graph/edges.js";
+import { extractEdges, extractGDScriptClassNames, insertEdges } from "../src/graph/edges.js";
 import { openMemoryDb } from "../src/db/db.js";
 import { getOrCreateIndex } from "../src/index/manager.js";
 import { buildIndex } from "../src/index/indexer.js";
@@ -97,10 +97,17 @@ describe("GDScript extractEdges — extends", () => {
     expect(imps).toHaveLength(0);
   });
 
-  // Documents H1: `extends ClassName` does NOT resolve to a file declaring
-  // `class_name ClassName` because resolution is per-file with no cross-file
-  // class_name registry. This is a known gap — fix requires indexer-level work.
-  it("does NOT resolve extends ClassName to a class_name file (known gap, H1)", () => {
+  it("resolves extends ClassName to a class_name file via classNameMap", () => {
+    const known = new Set(["base/character.gd", "player.gd"]);
+    const classNameMap = new Map<string, string>([["Character", "base/character.gd"]]);
+    const source = `extends Character
+`;
+    const edges = extractEdges("player.gd", "gdscript", source, "/tmp", known, classNameMap);
+    const imp = edges.find((e) => e.type === "imports" && e.toPath === "base/character.gd");
+    expect(imp).toBeDefined();
+  });
+
+  it("does not resolve extends ClassName without classNameMap", () => {
     const known = new Set(["base/character.gd", "player.gd"]);
     const source = `extends Character
 `;
@@ -151,6 +158,28 @@ const weapon = preload("res://scripts/weapon.gd")
     const edges = extractEdges("player.gd", "gdscript", source, "/tmp", known);
     const calls = edges.filter((e) => e.type === "calls");
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("extractGDScriptClassNames", () => {
+  it("extracts class_name from GDScript source", () => {
+    const source = `class_name Weapon
+extends Resource
+
+func attack():
+  pass
+`;
+    const names = extractGDScriptClassNames(source);
+    expect(names).toContain("Weapon");
+  });
+
+  it("returns empty array when no class_name", () => {
+    const source = `extends Node2D
+func _ready():
+  pass
+`;
+    const names = extractGDScriptClassNames(source);
+    expect(names).toEqual([]);
   });
 });
 
@@ -232,6 +261,30 @@ func move_toward(x, y):
       "SELECT to_path FROM edges WHERE index_id = ? AND type = 'calls' AND from_path = ? AND to_path = ?",
     ).get(r.indexId, "scripts/player.gd", "scripts/weapon.gd") as { to_path: string } | undefined;
     expect(call?.to_path).toBe("scripts/weapon.gd");
+    db.close();
+  });
+
+  it("builds imports edge for extends ClassName when class_name exists", () => {
+    writeFileSync(join(repo, "scripts", "character.gd"), `class_name Character
+extends Node
+
+func move():
+  pass
+`);
+    writeFileSync(join(repo, "scripts", "player_extends.gd"), `extends Character
+
+func _ready():
+  move()
+`);
+    execSync("git add -A && git commit -q -m 'add character'", { cwd: repo });
+    scope = detectScope(repo);
+
+    const db = openMemoryDb();
+    const r = buildIndex(db, scope!);
+    const imp = db.prepare(
+      "SELECT to_path FROM edges WHERE index_id = ? AND type = 'imports' AND from_path = ?",
+    ).get(r.indexId, "scripts/player_extends.gd") as { to_path: string } | undefined;
+    expect(imp?.to_path).toBe("scripts/character.gd");
     db.close();
   });
 });
