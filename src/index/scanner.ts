@@ -29,7 +29,7 @@ const EXT_LANG: Record<string, string> = {
   ".java": "java", ".rb": "ruby", ".php": "php", ".c": "c", ".h": "c", ".cpp": "cpp",
   ".cc": "cpp", ".hpp": "cpp", ".cs": "csharp", ".swift": "swift", ".kt": "kotlin",
   ".scala": "scala", ".sh": "bash", ".md": "markdown", ".json": "json", ".yaml": "yaml",
-  ".yml": "yaml", ".toml": "toml", ".sql": "sql",
+  ".yml": "yaml", ".toml": "toml", ".sql": "sql", ".gd": "gdscript",
 };
 
 function inferLanguage(posixPath: string): string | null {
