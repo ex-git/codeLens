@@ -119,7 +119,7 @@ func take_damage(amount):
     // Before: player.gd has no imports edge (Character unresolved)
     const before = db.prepare(
       "SELECT count(*) as c FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports'",
-    ).get(db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get().id) as { c: number };
+    ).get((db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id) as { c: number };
     expect(before.c).toBe(0);
 
     // Add character.gd with class_name Character
@@ -138,7 +138,7 @@ func take_damage(amount):
     expect(r.refreshed).toBeGreaterThanOrEqual(1);
 
     // After: player.gd should have imports edge → character.gd
-    const idx = db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get().id;
+    const idx = (db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id;
     const edge = db.prepare(
       "SELECT to_path FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports'",
     ).get(idx) as { to_path: string } | undefined;
@@ -151,7 +151,7 @@ func take_damage(amount):
     buildIndex(db, gdScope!);
 
     // Verify edge exists after full build
-    const idx = db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get().id;
+    const idx = (db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id;
     const edge = db.prepare(
       "SELECT to_path FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports'",
     ).get(idx) as { to_path: string } | undefined;
@@ -165,7 +165,7 @@ func take_damage(amount):
     expect(r.deleted).toBeGreaterThanOrEqual(1);
 
     // After: player.gd should NOT have imports edge to character.gd
-    const idx2 = db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get().id;
+    const idx2 = (db.prepare("SELECT id FROM indexes ORDER BY rowid DESC LIMIT 1").get() as { id: string }).id;
     const stale = db.prepare(
       "SELECT to_path FROM edges WHERE index_id = ? AND from_path = 'scripts/player.gd' AND type = 'imports' AND to_path = 'scripts/character.gd'",
     ).get(idx2) as { to_path: string } | undefined;
