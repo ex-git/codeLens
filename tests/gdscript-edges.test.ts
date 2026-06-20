@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+
 
 describe("resolveGodotPath", () => {
   it("strips res:// and resolves exact match", () => {
@@ -293,7 +293,7 @@ func _ready():
 });
 
 describe("buildGDScriptClassNameMap", () => {
-  it("duplicate class_name resolves deterministically (alphabetically first) with warning", async () => {
+  it("duplicate class_name resolves deterministically (alphabetically first) with warning", () => {
     const tmp = join(tmpdir(), `cl-test-${crypto.randomUUID()}`);
     mkdirSync(join(tmp, "a"), { recursive: true });
     mkdirSync(join(tmp, "b"), { recursive: true });
@@ -311,7 +311,7 @@ extends Node
     const origWarn = console.warn;
     console.warn = (...args: unknown[]) => warns.push(args.join(" "));
     try {
-      const files = await scanFiles(tmp);
+      const files = scanFiles(tmp);
       const map = buildGDScriptClassNameMap(files, tmp);
 
       // Warning logged

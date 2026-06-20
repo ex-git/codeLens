@@ -42,7 +42,7 @@ describe("content_type classification", () => {
     execSync("git add -A && git commit -q -m add-gd", { cwd: repo });
     const db = openMemoryDb();
     const scope = detectScope(repo)!;
-    const r = buildIndex(db, scope);
+    buildIndex(db, scope);
     const row = db.prepare("SELECT content_type FROM chunks WHERE path = ? LIMIT 1").get("src/player.gd") as { content_type: string };
     expect(row.content_type).toBe("code");
     db.close();
