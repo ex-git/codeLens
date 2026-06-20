@@ -57,7 +57,8 @@
     "prepublishOnly": "npm run build",
     "mcp:smoke": "node build/src/server.js --smoke",
     "start": "node build/src/server.js",
-    "benchmark": "npx tsx bench/run.ts"
+    "benchmark": "npx tsx bench/run.ts",
+    "quality": "npx tsx bench/quality.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

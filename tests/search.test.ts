@@ -4,6 +4,7 @@ import { buildIndex } from "../src/index/indexer.js";
 import { ctxSearch } from "../src/tools/search.js";
 import { ctxExpand } from "../src/tools/expand.js";
 import { ctxCurrent } from "../src/tools/current.js";
+import { splitIdentifiers } from "../src/search/identifiers.js";
 import { detectScope, type GitScope } from "../src/git/scope.js";
 import { getOrCreateIndex } from "../src/index/manager.js";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
@@ -24,10 +25,22 @@ beforeAll(() => {
     "import { validateSession } from './session.js';\nexport const ok = validateSession('x');\n");
   writeFileSync(join(repo, "src", "auth", "multi.ts"),
     "export function targetHandler() {\n  return 'sharedToken';\n}\n\nexport function otherHandler() {\n  return 'sharedToken targetHandler';\n}\n");
+  writeFileSync(join(repo, "src", "auth", "camel.ts"),
+    "export function renewAccessToken(): string {\n  return 'ok';\n}\n");
   execSync("git add -A && git commit -q -m init", { cwd: repo });
   scope = detectScope(repo);
 });
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
+
+describe("splitIdentifiers", () => {
+  it("splits identifiers with bounds, dedupe, and short-token filtering", () => {
+    expect(splitIdentifiers("validateSession user_id MAX_SESSION_LEN", { maxTokens: 10 })).toEqual([
+      "validate", "session", "user", "max", "session", "len",
+    ].filter((term, index, all) => all.indexOf(term) === index));
+    expect(splitIdentifiers("fooBar fooBar bazQux", { maxTokens: 3 })).toEqual(["foo", "bar", "baz"]);
+    expect(splitIdentifiers("id ok", { maxTokens: 10 })).toEqual([]);
+  });
+});
 
 describe("ctxSearch", () => {
   it("returns handles scoped to active index", () => {
@@ -104,6 +117,24 @@ describe("ctxSearch", () => {
     buildIndex(db, scope!);
     const r = ctxSearch(db, "validateSession");
     expect(r.results[0]!.snippet).toContain("**validateSession**");
+    db.close();
+  });
+
+  it("finds camelCase subtokens without changing displayed snippets", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxSearch(db, "access", { limit: 5, snippet: "compact" });
+    const hit = r.results.find((x) => x.path === "src/auth/camel.ts");
+    expect(hit).toBeDefined();
+    expect(hit!.snippet).toContain("renew**Access**Token");
+    expect(hit!.snippet).not.toContain("renew access token");
+    db.close();
+  });
+
+  it("handles punctuation-heavy expanded queries without throwing", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    expect(() => ctxSearch(db, "access \"foo-bar\" OR NEAR", { limit: 5, snippet: "none" })).not.toThrow();
     db.close();
   });
 

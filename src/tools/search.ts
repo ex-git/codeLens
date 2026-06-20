@@ -4,6 +4,7 @@ import { extractSnippet, headlineSnippet } from "../search/snippet.js";
 import { rank, normalize, type SignalScore } from "../search/rank.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
+import { splitIdentifiers } from "../search/identifiers.js";
 import type { GitScope } from "../git/scope.js";
 
 /**
@@ -41,10 +42,47 @@ export type SnippetMode = "none" | "headline" | "compact" | "full";
 /** Ranks below this (0-indexed) keep a richer preview when no mode is forced. */
 const RICH_PREVIEW_TOP_N = 3;
 
+const QUERY_EXPANSION_MAX_TERMS = 16;
+
+function queryTerms(query: string): string[] {
+  const original = query.split(/[^A-Za-z0-9_]+/i).filter((t) => t.length > 0);
+  const seen = new Set(original.map((t) => t.toLowerCase()));
+  const expanded = splitIdentifiers(query, { maxTokens: QUERY_EXPANSION_MAX_TERMS });
+  const terms = [...original];
+  for (const term of expanded) {
+    const lower = term.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    terms.push(term);
+  }
+  return terms;
+}
+
+function quoteFtsTerm(term: string): string {
+  return `"${term.replace(/"/g, "\"\"")}"`;
+}
+
 function ftsQuery(query: string): string {
-  const terms = query.split(/[^A-Za-z0-9_]+/i).filter((t) => t.length > 0);
-  if (terms.length === 0) return "";
-  return terms.map((t) => `"${t}"`).join(" OR ");
+  const original = query.split(/[^A-Za-z0-9_]+/i).filter((t) => t.length > 0);
+  if (original.length === 0) return "";
+  const expressions: string[] = [];
+  const seen = new Set<string>();
+  for (const term of original) {
+    const quoted = quoteFtsTerm(term);
+    if (!seen.has(quoted)) {
+      seen.add(quoted);
+      expressions.push(quoted);
+    }
+    const parts = splitIdentifiers(term, { maxTokens: QUERY_EXPANSION_MAX_TERMS });
+    if (parts.length > 1) {
+      const group = `(${parts.map(quoteFtsTerm).join(" AND ")})`;
+      if (!seen.has(group)) {
+        seen.add(group);
+        expressions.push(group);
+      }
+    }
+  }
+  return expressions.join(" OR ");
 }
 
 interface FtsRow { path: string; startLine: number; endLine: number; content: string; chunkId: string; symbolId: string | null; rank: number; contentType: string; }
@@ -68,7 +106,7 @@ function gatherFts(db: Database.Database, indexId: string, fts: string, limit: n
 /** Build hybrid signals (FTS + symbol + graph). */
 function buildSignals(db: Database.Database, indexId: string, query: string, ftsRows: FtsRow[]): SignalScore[] {
   const ftsNorm = normalize(ftsRows.map((r) => -r.rank));
-  const terms = query.toLowerCase().split(/[^a-z0-9_]+/i).filter((t) => t.length > 1);
+  const terms = queryTerms(query).map((t) => t.toLowerCase()).filter((t) => t.length > 1);
   const symbolStmt = db.prepare(
     `SELECT 1 FROM symbols WHERE index_id = ? AND path = ? AND lower(name) LIKE ? LIMIT 1`,
   );

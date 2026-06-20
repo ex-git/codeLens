@@ -1,0 +1,62 @@
+[
+  {
+    "query": "session",
+    "expectedPath": "src/auth/session.ts",
+    "category": "camelCase",
+    "note": "Should find validateSession / SessionStore identifier content."
+  },
+  {
+    "query": "user id",
+    "expectedPath": "src/users/profile.ts",
+    "category": "snake_case",
+    "note": "Should find snake_case user_id references."
+  },
+  {
+    "query": "payment processor",
+    "expectedPath": "src/payments/processor.ts",
+    "category": "PascalCase",
+    "note": "Should find PaymentProcessor class."
+  },
+  {
+    "query": "session len",
+    "expectedPath": "src/config/constants.ts",
+    "category": "ALL_CAPS",
+    "note": "Should find MAX_SESSION_LEN constant."
+  },
+  {
+    "query": "auth session",
+    "expectedPath": "src/auth/session.ts",
+    "category": "path/name",
+    "note": "Path/name query should remain strong."
+  },
+  {
+    "query": "retry policy timeout",
+    "expectedPath": "src/network/retry.ts",
+    "category": "natural-language",
+    "note": "Natural-language query should find prose/comment and identifier mix."
+  },
+  {
+    "query": "notifier malformed punctuation \"quoted-token\" foo-bar",
+    "expectedPath": "src/notifications/notifier.ts",
+    "category": "syntax-safety",
+    "note": "Punctuation-heavy query should not throw and should still find expected file."
+  },
+  {
+    "query": "request handler",
+    "expectedPath": "src/server/request.ts",
+    "category": "no-regression",
+    "note": "Path/name plus identifier query should keep an obvious existing target near the top."
+  },
+  {
+    "query": "token validation",
+    "expectedPath": "src/auth/session.ts",
+    "category": "no-regression",
+    "note": "Natural token terms should not regress after identifier expansion."
+  },
+  {
+    "query": "cache entries cleanup",
+    "expectedPath": "src/cache/cleanup.ts",
+    "category": "stemming",
+    "note": "Stemming-sensitive plural/singular terms should behave predictably under porter."
+  }
+]

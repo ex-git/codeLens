@@ -1,5 +1,5 @@
 import type Parser from "tree-sitter";
-import { makeParser } from "./grammars.js";
+import { parseFile } from "./grammars.js";
 
 /**
  * Symbol extractor (Step 13).
@@ -46,15 +46,9 @@ const SYMBOL_TYPES: Record<string, string> = {
 // Node types that indicate an export (TS/JS).
 const EXPORT_WRAPPERS = new Set(["export_statement", "export_declaration"]);
 
-export function extractSymbols(path: string, lang: string, source: string): ExtractedSymbol[] {
-  const parser = makeParser(lang);
-  if (!parser) return [];
-  let tree: Parser.Tree;
-  try {
-    tree = parser.parse(source);
-  } catch {
-    return [];
-  }
+export function extractSymbols(path: string, lang: string, source: string, parsedTree?: Parser.Tree | null): ExtractedSymbol[] {
+  const tree = parsedTree ?? parseFile(lang, source);
+  if (!tree) return [];
   const out: ExtractedSymbol[] = [];
   const root = tree.rootNode;
 

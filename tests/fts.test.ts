@@ -188,6 +188,25 @@ describe("indexFile + FTS", () => {
     db.close();
   });
 
+  it("enriches match-only FTS content without changing stored chunk content", () => {
+    const db = openMemoryDb();
+    const scope = detectScope(repo)!;
+    const r = buildIndex(db, scope);
+    const row = db.prepare(
+      `SELECT c.content AS chunkContent, f.content AS ftsContent
+       FROM chunks c
+       JOIN chunks_fts f ON f.chunk_id = c.id
+       WHERE c.index_id = ? AND c.path = ?
+       ORDER BY c.start_line LIMIT 1`,
+    ).get(r.indexId, "src/session.ts") as { chunkContent: string; ftsContent: string };
+
+    expect(row.chunkContent).toContain("validateSession");
+    expect(row.chunkContent).not.toContain("validate session");
+    expect(row.ftsContent).toContain("validateSession");
+    expect(row.ftsContent).toContain("validate session");
+    db.close();
+  });
+
   it("sets symbol_id and structural chunker metadata for symbol chunks", () => {
     const db = openMemoryDb();
     const scope = detectScope(repo)!;

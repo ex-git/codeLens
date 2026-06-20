@@ -7,7 +7,9 @@ import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
 import { extractSymbols, type ExtractedSymbol } from "../graph/symbols.js";
 import { extractEdges, insertEdges, type ExtractedEdge } from "../graph/edges.js";
+import { parseFile } from "../graph/grammars.js";
 import { isTestFile, resolveTestTargets } from "../graph/tests.js";
+import { withIdentifierSubtokens } from "../search/identifiers.js";
 
 /**
  * FTS5 chunk indexer (Step 7).
@@ -21,7 +23,7 @@ const CHUNK_CHARS = 2000; // ~500 tokens at ~4 chars/token
 const DEFAULT_CHUNK_OVERLAP_CHARS = 100;
 const STRUCTURAL_CHUNK_MAX_BYTES = 512 * 1024;
 
-export const CHUNKER_VERSION = 1;
+export const CHUNKER_VERSION = 2;
 export const CHUNKER_NAMES = {
   line: "line",
   structural: "structural",
@@ -275,8 +277,10 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
   const fileId = "file_" + randomUUID();
 
   const parserEligible = Buffer.byteLength(text, "utf8") <= STRUCTURAL_CHUNK_MAX_BYTES;
-  const symbols = parserEligible ? extractSymbols(file.path, file.language ?? "", text) : [];
-  const edges = parserEligible ? extractEdges(file.path, file.language ?? "", text, root, knownFiles) : [];
+  const lang = file.language ?? "";
+  const tree = parserEligible ? parseFile(lang, text) : null;
+  const symbols = tree ? extractSymbols(file.path, lang, text, tree) : [];
+  const edges = tree ? extractEdges(file.path, lang, text, root, knownFiles, tree) : [];
   const lineCount = text.split("\n").length;
   const symbolRows = symbols.map((sym) => ({
     id: "sym_" + randomUUID(),
@@ -338,7 +342,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
       const symbolId = c.symbolRangeKey ? symbolIdByRange.get(c.symbolRangeKey) ?? null : null;
       const chunker = symbolId ? CHUNKER_NAMES.structural : CHUNKER_NAMES.line;
       insertChunk.run(chunkId, indexId, fileId, symbolId, file.path, c.startLine, c.endLine, c.content, cHash, ctype, chunker, CHUNKER_VERSION);
-      insertFts.run(c.content, file.path, indexId, chunkId);
+      insertFts.run(withIdentifierSubtokens(c.content), file.path, indexId, chunkId);
     }
 
     // Edges: imports (file→file) from extractEdges; defines/belongs_to

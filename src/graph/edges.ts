@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import type Parser from "tree-sitter";
-import { makeParser } from "./grammars.js";
+import { parseFile } from "./grammars.js";
 import { resolveImportFs, resolveImport } from "./resolve.js";
 
 /**
@@ -73,15 +73,9 @@ function importBindingNames(node: Parser.SyntaxNode): string[] {
  * Extract edges for a single file. `knownFiles` (repo-relative POSIX set) is
  * used to resolve imports to indexed files; falls back to the filesystem.
  */
-export function extractEdges(path: string, lang: string, source: string, repoRoot: string, knownFiles: Set<string>): ExtractedEdge[] {
-  const parser = makeParser(lang);
-  if (!parser) return [];
-  let tree: Parser.Tree;
-  try {
-    tree = parser.parse(source);
-  } catch {
-    return [];
-  }
+export function extractEdges(path: string, lang: string, source: string, repoRoot: string, knownFiles: Set<string>, parsedTree?: Parser.Tree | null): ExtractedEdge[] {
+  const tree = parsedTree ?? parseFile(lang, source);
+  if (!tree) return [];
   const out: ExtractedEdge[] = [];
   const root = tree.rootNode;
   const jsts = lang === "typescript" || lang === "javascript";

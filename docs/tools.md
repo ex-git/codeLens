@@ -17,6 +17,7 @@ JSON-serialized text content.
 - **Input**: `{ query: string, limit?: number=5, cursor?: string, contentType?: "code"|"prose", related?: boolean, snippet?: "none"|"headline"|"compact"|"full" }`
 - **Returns**: `{ indexId, results:[{handle,path,startLine,endLine,score,snippet,why}], nextCursor, freshness, pendingFiles, related? }`
 - **Use**: intent-level code discovery.
+- **Identifier matching**: code identifiers are indexed with bounded subtokens (`validateSession` also matches `session`) in the match-only FTS text. Query expansion uses the same bounded splitter and preserves snippets/handles from stored chunk content.
 - **`snippet` (preview verbosity)**: default is signature-first `headline` (richer `compact` for the top ~3 results), which keeps payloads small. `none` returns path+lines only (fetch with `cl_expand`); `compact`/`full` return larger code windows. Explicitly setting `snippet` applies that mode to all results.
 - **`why` signals**: `fts|symbol|exact|graph|path|code` (exact = exact symbol-name match; path = query term in the file path). Ranking is deterministic with a stable tie-break.
 

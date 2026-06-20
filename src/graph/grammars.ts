@@ -27,6 +27,7 @@ const GRAMMAR_LOADERS: Record<string, () => Language> = {
 };
 
 const cache = new Map<string, Language | null>();
+let parseFileCallCount = 0;
 
 /** Get the tree-sitter Language for a language name, or null if unavailable. */
 export function loadGrammar(lang: string): Language | null {
@@ -64,4 +65,24 @@ export function makeParser(lang: string): Parser | null {
   } catch {
     return null;
   }
+}
+
+/** Parse source once for a language, or null on unsupported grammar / parse failure. */
+export function parseFile(lang: string, source: string): Parser.Tree | null {
+  const parser = makeParser(lang);
+  if (!parser) return null;
+  try {
+    parseFileCallCount++;
+    return parser.parse(source);
+  } catch {
+    return null;
+  }
+}
+
+export function resetParseFileCallCountForTesting(): void {
+  parseFileCallCount = 0;
+}
+
+export function getParseFileCallCountForTesting(): number {
+  return parseFileCallCount;
 }

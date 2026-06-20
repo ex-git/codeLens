@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { extractSymbols } from "../src/graph/symbols.js";
-import { isSupported, loadGrammar } from "../src/graph/grammars.js";
+import { getParseFileCallCountForTesting, isSupported, loadGrammar, resetParseFileCallCountForTesting } from "../src/graph/grammars.js";
 import { openMemoryDb } from "../src/db/db.js";
 import { buildIndex } from "../src/index/indexer.js";
 import { detectScope, type GitScope } from "../src/git/scope.js";
@@ -68,6 +68,14 @@ describe("indexer symbol integration", () => {
     const r = buildIndex(db, scope!);
     const syms = db.prepare("SELECT name, kind, exported FROM symbols WHERE index_id = ?").all(r.indexId) as { name: string; kind: string; exported: number }[];
     expect(syms.find((s) => s.name === "validateSession" && s.kind === "function")).toBeDefined();
+    db.close();
+  });
+
+  it("parses each eligible file once while populating symbols and edges", () => {
+    const db = openMemoryDb();
+    resetParseFileCallCountForTesting();
+    buildIndex(db, scope!);
+    expect(getParseFileCallCountForTesting()).toBe(1);
     db.close();
   });
 });
