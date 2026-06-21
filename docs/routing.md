@@ -26,10 +26,10 @@ context across compaction. If a query result has `stale:true`, read that file
 from disk before relying on indexed snippets/edges.
 
 If `cl_current.inGitRepo` is false or `repo` points outside the current
-workspace, CodeLens is not attached to this workspace. Report the setup issue and
-ask the user to run `codelens install --target cursor --location local --yes`
-from the workspace root (or restart the MCP server after roots attach). Do not
-silently fall back to raw `find`/`grep` for discovery.
+workspace, CodeLens is not attached to this workspace. Tell the user to restart
+the IDE after upgrading (the global Cursor config attaches via
+`${workspaceFolder}`), or to re-run `codelens install --target cursor --yes`. Do
+not silently fall back to raw `find`/`grep` for discovery.
 
 ## When raw grep/find/read is fine (or better)
 

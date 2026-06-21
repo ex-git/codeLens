@@ -150,6 +150,12 @@ describe("installer: target resolution + print-config", () => {
   });
 });
 describe("installer: cursor routing rule (.mdc)", () => {
+  it("global config attaches via ${workspaceFolder}", () => {
+    runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(fakeHome, ".cursor", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
+  });
+
   it("local config passes workspace cwd explicitly", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["cursor"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(process.cwd(), ".cursor", "mcp.json"), "utf-8"));

@@ -26,15 +26,18 @@ export type Location = "global" | "local";
 export type TargetSpec = "auto" | "all" | "none" | string[];
 
 /**
- * Args that attach the server to the workspace for LOCAL installs. Global
- * installs return [] and rely on MCP Roots (a single global config must not pin
- * one repo). Cursor expands `${workspaceFolder}`; other hosts have no portable
- * variable, so we pin the concrete workspace root (the dir the local config is
- * written into = process.cwd() at install time).
+ * Args that attach the server to the workspace. Cursor (and VS Code family)
+ * expand `${workspaceFolder}` in BOTH global and local mcp.json, so Cursor gets
+ * it at any location for a one-shot attach. Other hosts have no portable
+ * workspace variable: local installs pin the concrete workspace root (the dir
+ * the local config is written into = process.cwd() at install time), while
+ * global installs return [] and rely on MCP Roots (a single global config must
+ * not pin one repo).
  */
 function workspaceCwdArgs(hostId: string, loc?: Location): string[] {
+  if (hostId === "cursor") return ["--cwd", "${workspaceFolder}"];
   if (loc !== "local") return [];
-  return hostId === "cursor" ? ["--cwd", "${workspaceFolder}"] : ["--cwd", process.cwd()];
+  return ["--cwd", process.cwd()];
 }
 
 export interface HostAdapter {
@@ -92,7 +95,7 @@ Raw \`grep\`/\`find\`/\`read\` is fine when:
 - the repo is tiny or familiar
 
 If a result has \`stale:true\` or \`freshness:"partial"\`, read that file directly before relying on indexed snippets/edges.
-If \`cl_current.inGitRepo\` is false or the repo path is not this workspace, report the setup issue and ask the user to run \`codelens install --target cursor --location local --yes\` from the workspace root; do not silently fall back to raw find/grep.
+If \`cl_current.inGitRepo\` is false or the repo path is not this workspace, CodeLens isn't attached: tell the user to restart the IDE after upgrading (the global Cursor config attaches via \`\${workspaceFolder}\`), or run \`codelens install --target cursor --yes\`; do not silently fall back to raw find/grep.
 Always use \`cl_expand\` or a raw read for the exact file you're about to edit.
 Results are scoped to the current branch; call \`cl_current\` after a
 \`git checkout\`. See \`docs/routing.md\`. Remove with: \`codelens uninstall\`.`;

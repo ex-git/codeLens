@@ -111,6 +111,6 @@ export async function performUpgrade(_version?: string): Promise<UpgradeResult> 
     : `Could not auto-refresh agent config (${refresh.detail}); run \`codelens install --target all --yes\`.`;
   return {
     ok: true,
-    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${refreshNote} Restart your agent(s). For Cursor per-workspace, run \`codelens install --target cursor --location local --yes\` from the repo root.`,
+    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${refreshNote} Restart your agent(s) to pick up the new build (Cursor's global config attaches to the workspace via \${workspaceFolder}).`,
   };
 }

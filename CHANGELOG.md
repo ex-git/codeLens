@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-06-21
+
+### Changed
+- Cursor config (global and local) now attaches to the active workspace via `--cwd ${workspaceFolder}`, which Cursor expands per-workspace. This makes a single global install one-shot across all workspaces (no per-workspace install, no dependence on MCP Roots). Routing prompts/docs/upgrade messaging updated accordingly.
+
 ## [2.1.2] - 2026-06-21
 
 ### Fixed
