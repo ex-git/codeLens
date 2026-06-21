@@ -65,7 +65,9 @@ describe("UsageTracker (global)", () => {
     // it's told. This test pins the tracked set so accidental inclusion of
     // cl_refresh/cl_doctor/etc. is caught.
     expect(TRACKED_TOOLS.has("cl_search")).toBe(true);
+    expect(TRACKED_TOOLS.has("cl_explore")).toBe(true);
     expect(TRACKED_TOOLS.has("cl_related")).toBe(true);
+    expect(TRACKED_TOOLS.has("cl_impact")).toBe(true);
     expect(TRACKED_TOOLS.has("cl_expand")).toBe(true);
     expect(TRACKED_TOOLS.has("cl_save")).toBe(true);
     expect(TRACKED_TOOLS.has("cl_load")).toBe(true);
@@ -107,9 +109,15 @@ describe("estimateSavedFromPaths (actual file sizes)", () => {
     expect(estimateSavedFromPaths(db, id, ["a.ts", "a.ts", "a.ts"], 100)).toBe(8000 - 100);
     db.close();
   });
-  it("extractDiscoveryPaths pulls paths from a discovery result", () => {
+  it("extractDiscoveryPaths pulls paths from search/related discovery results", () => {
     const text = JSON.stringify({ results: [{ path: "a.ts" }, { path: "b.ts" }, { path: "a.ts" }] });
     expect(extractDiscoveryPaths(text).sort()).toEqual(["a.ts", "a.ts", "b.ts"]); // dedup happens in estimateSavedFromPaths
+  });
+  it("extractDiscoveryPaths pulls paths from explore and impact shapes", () => {
+    const explore = JSON.stringify({ files: [{ path: "a.ts" }], related: [{ sourcePath: "a.ts", path: "b.ts" }] });
+    expect(extractDiscoveryPaths(explore).sort()).toEqual(["a.ts", "a.ts", "b.ts"]);
+    const impact = JSON.stringify({ target: { path: "c.ts" }, callers: [{ path: "d.ts" }], affectedTests: [{ path: "c.test.ts" }] });
+    expect(extractDiscoveryPaths(impact).sort()).toEqual(["c.test.ts", "c.ts", "d.ts"]);
   });
   it("record() honors savedOverride when provided", () => {
     const db = memDb();

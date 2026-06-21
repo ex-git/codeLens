@@ -21,8 +21,8 @@ import { join } from "node:path";
  * CodeLens MCP server (Step 24 wiring).
  *
  * Resolves the repo root from cwd, opens the core index DB and the contexts DB
- * (separate file), registers all 10 tools from the registry, and starts the
- * stdio transport. Auto-prune runs on startup + periodic idle timer.
+ * (separate file), registers all tools from the registry, and starts the stdio
+ * transport. Auto-prune runs on startup + periodic idle timer.
  */
 
 function createServer(ctx: ServerContext): McpServer {

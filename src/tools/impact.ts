@@ -5,6 +5,7 @@ import { neighbors, testsFor, type GraphNeighbor } from "../graph/query.js";
 
 export interface ImpactTarget {
   path: string;
+  symbolId?: string;
   symbol?: string;
   kind?: string;
   signature?: string | null;
@@ -22,7 +23,17 @@ export interface ImpactHandle {
   edgeType: string;
   hops: number;
   confidence: number;
+  /** Where this impact edge came from: graph traversal or a conservative path heuristic. */
+  provenance?: "graph" | "path-heuristic";
+  confidenceLabel?: "high" | "medium" | "low";
   stale?: boolean;
+}
+
+export interface ImpactSummary {
+  callers: number;
+  callees: number;
+  affectedFiles: number;
+  affectedTests: number;
 }
 
 export interface ImpactResult {
@@ -34,6 +45,7 @@ export interface ImpactResult {
   affectedFiles: ImpactHandle[];
   affectedTests: ImpactHandle[];
   depth: number;
+  summary?: ImpactSummary;
   confidenceNote: string;
   freshness?: "fresh" | "partial";
   pendingFiles?: number;
@@ -56,13 +68,21 @@ function clampDepth(depth?: number): number {
   return Math.min(Math.max(1, depth ?? DEFAULT_DEPTH), MAX_DEPTH);
 }
 
-function staleAware(indexId: string, n: GraphNeighbor): ImpactHandle {
+function confidenceLabel(confidence: number): "high" | "medium" | "low" {
+  if (confidence >= 0.8) return "high";
+  if (confidence >= 0.5) return "medium";
+  return "low";
+}
+
+function staleAware(indexId: string, n: GraphNeighbor, provenance: ImpactHandle["provenance"] = "graph"): ImpactHandle {
   const item: ImpactHandle = {
     handle: `rel:${n.path}`,
     path: n.path,
     edgeType: n.edgeType,
     hops: n.hops,
     confidence: n.confidence,
+    provenance,
+    confidenceLabel: confidenceLabel(n.confidence),
   };
   if (getPendingPaths(indexId).has(n.path)) item.stale = true;
   return item;
@@ -81,7 +101,7 @@ function uniq(handles: ImpactHandle[]): ImpactHandle[] {
       byKey.set(key, h);
     }
   }
-  return [...byKey.values()].sort((a, b) => a.hops - b.hops || b.confidence - a.confidence || a.path.localeCompare(b.path));
+  return [...byKey.values()].sort((a, b) => a.hops - b.hops || b.confidence - a.confidence || a.edgeType.localeCompare(b.edgeType) || a.path.localeCompare(b.path));
 }
 
 function resolveSymbol(db: Database.Database, indexId: string, symbol: string, path?: string): SymbolRow[] {
@@ -104,6 +124,7 @@ function resolveSymbol(db: Database.Database, indexId: string, symbol: string, p
 function candidateFrom(row: SymbolRow, stale: boolean): ImpactCandidate {
   const c: ImpactCandidate = {
     id: row.id,
+    symbolId: row.id,
     path: row.path,
     symbol: row.name,
     kind: row.kind,
@@ -122,6 +143,7 @@ function targetFrom(row: SymbolRow | undefined, path: string, stale: boolean): I
   }
   const target: ImpactTarget = {
     path: row.path,
+    symbolId: row.id,
     symbol: row.name,
     kind: row.kind,
     signature: row.signature,
@@ -193,8 +215,8 @@ export function ctxImpact(
     ? uniq([
         ...testsFor(db, indexId, targetPath).map((n) => staleAware(indexId, n)),
         ...affectedFiles.flatMap((f) => testsFor(db, indexId, f.path).map((n) => staleAware(indexId, n))),
-        ...affectedFiles.filter((f) => isTestPath(f.path)).map((f) => ({ ...f, edgeType: "tests" })),
-        ...callers.filter((f) => isTestPath(f.path)).map((f) => ({ ...f, edgeType: "tests" })),
+        ...affectedFiles.filter((f) => isTestPath(f.path)).map((f) => ({ ...f, edgeType: "tests", confidence: Math.min(f.confidence, 0.6), confidenceLabel: "medium" as const, provenance: "path-heuristic" as const })),
+        ...callers.filter((f) => isTestPath(f.path)).map((f) => ({ ...f, edgeType: "tests", confidence: Math.min(f.confidence, 0.6), confidenceLabel: "medium" as const, provenance: "path-heuristic" as const })),
       ])
     : [];
 
@@ -206,7 +228,13 @@ export function ctxImpact(
     affectedFiles,
     affectedTests,
     depth,
-    confidenceNote: "Impact is derived from indexed file/symbol edges. calls/references are currently strongest for TS/JS; lower-confidence or sparse languages may need cl_search/cl_expand follow-up.",
+    summary: {
+      callers: callers.length,
+      callees: callees.length,
+      affectedFiles: affectedFiles.length,
+      affectedTests: affectedTests.length,
+    },
+    confidenceNote: "Impact is derived from indexed file/symbol edges. calls/references are currently strongest for TS/JS; path-heuristic tests are conservative and lower-confidence; sparse languages may need cl_search/cl_expand follow-up.",
     freshness: pendingPaths.size > 0 ? "partial" : "fresh",
   };
   if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;

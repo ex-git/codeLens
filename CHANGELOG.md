@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [2.1.0] - 2026-06-21
+
+### Added
+- Deterministic offline `npm run eval:agent` harness comparing CodeLens-style discovery with raw-scan proxy metrics.
+- Package metadata test to ensure README-linked docs are included in the npm package.
+- Claude slash commands for `cl_explore` and `cl_impact`.
+
+### Changed
+- `cl_explore` now supports payload caps (`maxFiles`, `maxResultsPerFile`, `maxRelated`), deterministic ordering, and additive `truncated` metadata.
+- `cl_impact` now includes additive `symbolId`, `summary`, provenance, and confidence labels for impact handles.
+- npm package `files` now includes README-linked docs (`how-it-works` and `usage-metrics`).
+
 ## [2.0.1] - 2026-06-20
 
 ### Added
@@ -16,8 +30,7 @@ All notable changes to this project are documented here. This project follows
 - Query tools now share freshness reconciliation and can surface per-result
   `stale:true` plus `freshness:"partial"` / `pendingFiles` when refresh work is
   budget-limited.
-- Removed the CodeGraph comparison document/link and stale self-deprecating
-  comparison language.
+- Removed obsolete comparison document/link and stale self-deprecating language.
 
 ### Fixed
 - Docs: corrected README Limitations — cold index for 2000 files is ~3.5s (was

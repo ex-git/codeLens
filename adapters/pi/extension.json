@@ -6,5 +6,5 @@
     "command": "npx",
     "args": ["-y", "@fodx/codelens"]
   },
-  "description": "Branch-aware code search & relation graph (MCP server + CLI). Routes agents to cl_search/cl_related/cl_expand instead of raw grep/read."
+  "description": "Branch-aware code search & relation graph (MCP server + CLI). Routes agents to cl_explore/cl_search/cl_related/cl_impact/cl_expand instead of raw grep/read."
 }

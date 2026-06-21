@@ -10,14 +10,15 @@ import { join } from "node:path";
 import type { ServerContext } from "../src/tools/registry.js";
 
 const EXPECTED_TOOLS = [
-  "cl_current", "cl_refresh", "cl_search", "cl_related", "cl_expand",
-  "cl_save", "cl_load", "cl_stats", "cl_doctor", "cl_prune", "cl_drop",
+  "cl_current", "cl_refresh", "cl_search", "cl_explore", "cl_related",
+  "cl_impact", "cl_expand", "cl_map", "cl_save", "cl_load", "cl_stats",
+  "cl_doctor", "cl_usage", "cl_prune", "cl_drop",
 ];
 
 describe("tool registry", () => {
-  it("registers all 10 tools with schemas + descriptions", () => {
+  it("registers the full tool surface with schemas + descriptions", () => {
     const names = TOOLS.map((t) => t.name);
-    for (const n of EXPECTED_TOOLS) expect(names).toContain(n);
+    expect(names).toEqual(EXPECTED_TOOLS);
     for (const t of TOOLS) {
       expect(t.description.length).toBeGreaterThan(20);
       expect(t.schema).toBeDefined();

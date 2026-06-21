@@ -21,7 +21,7 @@ import { ensureFreshIndex } from "../index/reindex.js";
 /**
  * Tool registry (Step 24).
  *
- * Central source of truth for the 10 MCP tools: name, zod input schema,
+ * Central source of truth for MCP tools: name, zod input schema,
  * description (WHEN/RETURNS/EXAMPLE), and handler. The handlers receive a
  * ServerContext (core db, contexts db, repoRoot) and the parsed args.
  */
@@ -103,7 +103,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "cl_explore",
     description:
-      "One-call code exploration over the current branch index: hybrid search grouped by file, compact source previews, signature-collapse, and a relationship/blast map. Use for broad questions like 'how does X work?' before falling back to separate search/expand/related calls.\n\nRETURNS: {indexId, query, count, files:[{path, stale?, results:[{handle,lines,score,why,preview,signature?,collapsed?,stale?}]}], related:[{sourcePath,path,edgeType,hops,confidence,stale?}], freshness, pendingFiles?, nextCursor?}\n\nEXAMPLE: cl_explore(query: \"session validation flow\", limit: 8)",
+      "One-call code exploration over the current branch index: hybrid search grouped by file, compact source previews, signature-collapse, and a relationship/blast map. Use for broad questions like 'how does X work?' before falling back to separate search/expand/related calls.\n\nRETURNS: {indexId, query, count, files:[{path, stale?, results:[{handle,lines,score,why,preview,signature?,collapsed?,stale?}]}], related:[{sourcePath,path,edgeType,hops,confidence,stale?}], freshness, pendingFiles?, nextCursor?, truncated?}\n\nEXAMPLE: cl_explore(query: \"session validation flow\", limit: 8)",
     schema: {
       query: z.string().describe("Exploration query (2-6 specific technical terms recommended)."),
       limit: z.coerce.number().optional().default(8).describe("Maximum ranked chunks to group into files (default 8)."),
@@ -111,6 +111,9 @@ export const TOOLS: ToolDef[] = [
       contentType: z.enum(["code", "prose"]).optional().describe("Filter by chunk type: 'code' or 'prose'."),
       snippet: z.enum(["none", "headline", "compact", "full"]).optional().describe("Preview verbosity. Default compact."),
       relatedDepth: z.coerce.number().optional().default(1).describe("Relationship map depth (default 1, capped at 3)."),
+      maxFiles: z.coerce.number().optional().default(6).describe("Maximum file groups to return (default 6)."),
+      maxResultsPerFile: z.coerce.number().optional().default(3).describe("Maximum result previews per file group (default 3)."),
+      maxRelated: z.coerce.number().optional().default(20).describe("Maximum relationship-map entries (default 20)."),
     },
     handler: (ctx, args) => {
       ensureActive(ctx);
@@ -120,6 +123,9 @@ export const TOOLS: ToolDef[] = [
         contentType: args.contentType as "code" | "prose" | undefined,
         snippet: args.snippet as "none" | "headline" | "compact" | "full" | undefined,
         relatedDepth: args.relatedDepth as number | undefined,
+        maxFiles: args.maxFiles as number | undefined,
+        maxResultsPerFile: args.maxResultsPerFile as number | undefined,
+        maxRelated: args.maxRelated as number | undefined,
       });
     },
   },

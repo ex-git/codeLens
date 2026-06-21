@@ -64,13 +64,14 @@ const CODEX_START = `# codelens routing start (managed by \`codelens install\`)`
 const CODEX_END = `# codelens routing end`;
 const INSTRUCTIONS_BODY = `# CodeLens routing
 
-Prefer the codelens MCP tools (\`cl_search\`, \`cl_related\`, \`cl_expand\`,
-\`cl_map\`, \`cl_save\`, \`cl_load\`) for code discovery — they keep context lean
-and are branch-scoped.
+Prefer the codelens MCP tools (\`cl_search\`, \`cl_explore\`, \`cl_related\`,
+\`cl_impact\`, \`cl_expand\`, \`cl_map\`, \`cl_save\`, \`cl_load\`) for code
+discovery — they keep context lean and are branch-scoped.
 
 Use codelens when:
 - you don't know the exact name/string (semantic or conceptual search)
-- you need relationships (importers, tests, callers) or a file outline
+- you need broad orientation in one call (\`cl_explore\`)
+- you need relationships (importers, tests, callers), blast radius before edits (\`cl_impact\`), or a file outline
 - the repo is large or unfamiliar, or you'd otherwise grep + read many files
 
 Raw \`grep\`/\`find\`/\`read\` is fine when:
@@ -78,6 +79,7 @@ Raw \`grep\`/\`find\`/\`read\` is fine when:
 - you're reading or editing a single known file
 - the repo is tiny or familiar
 
+If a result has \`stale:true\` or \`freshness:"partial"\`, read that file directly before relying on indexed snippets/edges.
 Always use \`cl_expand\` or a raw read for the exact file you're about to edit.
 Results are scoped to the current branch; call \`cl_current\` after a
 \`git checkout\`. See \`docs/routing.md\`. Remove with: \`codelens uninstall\`.`;
@@ -225,6 +227,8 @@ class ClaudeCodeTarget implements HostAdapter {
       { name: "codelens-stats.md", content: "Call the `cl_stats` MCP tool and report the current index statistics (files/symbols/chunks/edges)." },
       { name: "codelens-doctor.md", content: "Call the `cl_doctor` MCP tool and report the health check results." },
       { name: "codelens-search.md", content: "Call the `cl_search` MCP tool with query: $ARGUMENTS (limit 5). Show the ranked handles." },
+      { name: "codelens-explore.md", content: "Call the `cl_explore` MCP tool with query: $ARGUMENTS (limit 8). Summarize grouped files and relationships." },
+      { name: "codelens-impact.md", content: "Call the `cl_impact` MCP tool for symbol/path: $ARGUMENTS. Summarize callers, callees, affected files, and affected tests." },
       { name: "codelens-refresh.md", content: "Call the `cl_refresh` MCP tool to build/update the current branch index, then report the result." },
     ];
   }

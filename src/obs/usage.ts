@@ -13,18 +13,18 @@ import { join } from "node:path";
  * can show both totals and a per-repo breakdown.
  *
  * "bytes_saved" is a defensible estimate for DISCOVERY tools (cl_search,
- * cl_related): the agent would otherwise grep + read ~N files at ~avg file
+ * cl_explore, cl_related, cl_impact): the agent would otherwise grep + read ~N files at ~avg file
  * size; instead it got compact handles. saved ≈ max(0, N*AVG_FILE_BYTES -
  * bytesServed). Non-discovery tools record calls + bytes_served but claim no
  * savings.
  */
 
 const AVG_FILE_BYTES = 4096;
-export const DISCOVERY_TOOLS = new Set(["cl_search", "cl_related"]);
+export const DISCOVERY_TOOLS = new Set(["cl_search", "cl_explore", "cl_related", "cl_impact"]);
 /** Tools that count as "usage" (retrieval + context management). Operational
  *  tools (refresh/doctor/stats/prune/drop/current/usage) are NOT tracked — they
  *  are maintenance, not the agent using the retrieval system. */
-export const TRACKED_TOOLS = new Set(["cl_search", "cl_related", "cl_expand", "cl_save", "cl_load"]);
+export const TRACKED_TOOLS = new Set(["cl_search", "cl_explore", "cl_related", "cl_impact", "cl_expand", "cl_save", "cl_load"]);
 
 function usageDbPath(): string {
   const dir = join(homedir(), ".codelens");
@@ -129,9 +129,22 @@ export class UsageTracker {
 }
 
 function countHandles(tool: string, resultText: string): number {
-  void tool;
   try {
-    const obj = JSON.parse(resultText) as { results?: unknown[] };
+    const obj = JSON.parse(resultText) as {
+      results?: unknown[];
+      files?: unknown[];
+      callers?: unknown[];
+      callees?: unknown[];
+      affectedFiles?: unknown[];
+      affectedTests?: unknown[];
+      candidates?: unknown[];
+    };
+    if (tool === "cl_explore") return Array.isArray(obj.files) ? obj.files.length : 0;
+    if (tool === "cl_impact") {
+      return [obj.callers, obj.callees, obj.affectedFiles, obj.affectedTests, obj.candidates]
+        .filter(Array.isArray)
+        .reduce((n, arr) => n + arr.length, 0);
+    }
     return Array.isArray(obj.results) ? obj.results.length : 0;
   } catch { return 0; }
 }
@@ -157,8 +170,31 @@ export function estimateSavedFromPaths(
 /** Extract distinct result paths from a discovery tool's JSON result. */
 export function extractDiscoveryPaths(resultText: string): string[] {
   try {
-    const obj = JSON.parse(resultText) as { results?: Array<{ path?: string }> };
-    return (obj.results ?? []).map((r) => r.path).filter((p): p is string => typeof p === "string");
+    const obj = JSON.parse(resultText) as {
+      path?: string;
+      target?: { path?: string };
+      results?: Array<{ path?: string }>;
+      files?: Array<{ path?: string }>;
+      related?: Array<{ path?: string; sourcePath?: string }>;
+      candidates?: Array<{ path?: string }>;
+      callers?: Array<{ path?: string }>;
+      callees?: Array<{ path?: string }>;
+      affectedFiles?: Array<{ path?: string }>;
+      affectedTests?: Array<{ path?: string }>;
+    };
+    const paths: string[] = [];
+    if (typeof obj.path === "string") paths.push(obj.path);
+    if (typeof obj.target?.path === "string") paths.push(obj.target.path);
+    for (const r of obj.results ?? []) if (typeof r.path === "string") paths.push(r.path);
+    for (const f of obj.files ?? []) if (typeof f.path === "string") paths.push(f.path);
+    for (const r of obj.related ?? []) {
+      if (typeof r.sourcePath === "string") paths.push(r.sourcePath);
+      if (typeof r.path === "string") paths.push(r.path);
+    }
+    for (const arr of [obj.candidates, obj.callers, obj.callees, obj.affectedFiles, obj.affectedTests]) {
+      for (const r of arr ?? []) if (typeof r.path === "string") paths.push(r.path);
+    }
+    return paths;
   } catch { return []; }
 }
 

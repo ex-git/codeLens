@@ -38,6 +38,9 @@ describe("ctxImpact", () => {
     expect(r.callers.some((h) => h.path === "src/auth/auth.ts" || h.path === "tests/session.test.ts")).toBe(true);
     expect(r.affectedFiles.some((h) => h.path === "src/auth/auth.ts" || h.path === "tests/session.test.ts")).toBe(true);
     expect(r.affectedTests.some((h) => h.path === "tests/session.test.ts")).toBe(true);
+    expect(r.summary?.affectedTests).toBe(r.affectedTests.length);
+    expect(r.target?.symbolId).toBeTruthy();
+    expect(r.callers.every((h) => h.provenance && h.confidenceLabel)).toBe(true);
     expect(r.confidenceNote).toContain("Impact is derived");
     db.close();
   });
@@ -47,6 +50,7 @@ describe("ctxImpact", () => {
     buildIndex(db, scope!);
     const r = ctxImpact(db, { symbol: "sharedName" });
     expect(r.candidates?.length).toBeGreaterThan(1);
+    expect(r.candidates?.every((c) => c.symbolId)).toBe(true);
     expect(r.target).toBeUndefined();
     expect(r.confidenceNote).toContain("Multiple symbols matched");
     db.close();
@@ -58,7 +62,8 @@ describe("ctxImpact", () => {
     const r = ctxImpact(db, { path: "src/auth/session.ts", depth: 1, includeTests: false });
     expect(r.target?.path).toBe("src/auth/session.ts");
     expect(r.affectedTests).toEqual([]);
-    expect(r.confidenceNote).toContain("calls/references");
+    expect(r.summary?.affectedTests).toBe(0);
+    expect(r.confidenceNote).toContain("path-heuristic");
     db.close();
   });
 });
