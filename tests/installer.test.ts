@@ -150,6 +150,13 @@ describe("installer: target resolution + print-config", () => {
   });
 });
 describe("installer: cursor routing rule (.mdc)", () => {
+  it("local config passes workspace cwd explicitly", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["cursor"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(process.cwd(), ".cursor", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
+    rmSync(join(process.cwd(), ".cursor"), { recursive: true, force: true });
+  });
+
   it("writes a dedicated codelens.mdc with frontmatter", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: true });
     const p = join(fakeHome, ".cursor", "rules", "codelens.mdc");
@@ -157,6 +164,7 @@ describe("installer: cursor routing rule (.mdc)", () => {
     expect(content).toContain("alwaysApply: true");
     expect(content).toContain("cl_explore");
     expect(content).toContain("cl_impact");
+    expect(content).toContain("cl_current.inGitRepo");
   });
   it("reinstall is idempotent (already=true)", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: true });

@@ -57,6 +57,19 @@ describe("cli", () => {
     expect(code).toBe(0);
   });
 
+  it("global --cwd runs repo commands from another process cwd", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "ce-cli-outside-"));
+    const before = process.cwd();
+    try {
+      process.chdir(outside);
+      const code = await cli(["--cwd", repo, "index"]);
+      expect(code).toBe(0);
+    } finally {
+      process.chdir(before);
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("install accepts documented --location=local form", async () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "ce-cli-home-"));
     process.env.HOME = fakeHome;
