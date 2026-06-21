@@ -12,10 +12,10 @@ End-to-end workflow for a coding agent using codelens.
    → { indexedFiles: 812, totalChunks: 2400, status: "ready" }
 
 3. cl_search(query: "session validation")
-   → results: [
-       { handle: "chk_…", path: "src/auth/session.ts", symbol: "validateSession",
-         startLine: 12, endLine: 58, score: 0.92, why: ["fts","symbol","graph"] }
-     ]
+   → { query: "session validation", count: 1, results: [
+       { handle: "chk_…", path: "src/auth/session.ts", lines: "12-58",
+         score: 0.92, why: "fts,symbol,graph", preview: "export function validateSession(token: string): boolean" }
+     ] }
 
 4. cl_related(path: "src/auth/session.ts", types: ["tests","imported_by"])
    → results: [

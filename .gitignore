@@ -7,4 +7,5 @@ build/
 plans/
 coverage/
 *.log
+reports/codelens-eval/
 .DS_Store

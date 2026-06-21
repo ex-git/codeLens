@@ -130,16 +130,18 @@ export async function cli(args: string[]): Promise<number> {
         break;
       }
       case "search": {
-        // support --type code|prose
+        // support --type code|prose and --preview
         const typeIdx = args.indexOf("--type");
         const contentType = typeIdx >= 0 ? (args[typeIdx + 1] as "code" | "prose" | undefined) : undefined;
-        const queryArgs = args.slice(1).filter((a) => a !== "--type" && a !== contentType);
+        const preview = args.includes("--preview");
+        const queryArgs = args.slice(1).filter((a) => a !== "--type" && a !== "--preview" && a !== contentType);
         const query = queryArgs.join(" ");
         if (!query) { console.error("search requires a query"); return 1; }
         ensureActiveIndex(coreDb, repoRoot);
-        const r = ctxSearch(coreDb, query, { scope: detectScope(repoRoot) ?? undefined, contentType });
+        const r = ctxSearch(coreDb, query, { scope: detectScope(repoRoot) ?? undefined, contentType, snippet: preview ? "headline" : undefined });
         for (const h of r.results) {
-          console.log(`${h.score.toFixed(3)}  ${h.path}:${h.startLine}-${h.endLine}  [${h.why?.join(",")}]`);
+          console.log(`${h.score.toFixed(3)}  ${h.path}:${h.lines}  [${h.why}]`);
+          if (preview && h.preview) console.log(`    ${h.preview}`);
         }
         break;
       }

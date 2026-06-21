@@ -282,8 +282,8 @@ export default function (pi: PiExtensionAPI) {
       const text = await call("cl_search", { query, limit: 5 });
       try {
         const r = JSON.parse(text);
-        const lines = (r.results ?? []).map((h: { score: number; path: string; startLine: number; endLine: number; why?: string[] }) =>
-          `${h.score.toFixed(3)}  ${h.path}:${h.startLine}-${h.endLine}  [${(h.why ?? []).join(",")}]`);
+        const lines = (r.results ?? []).map((h: { score: number; path: string; lines: string; why?: string }) =>
+          `${h.score.toFixed(3)}  ${h.path}:${h.lines}  [${h.why ?? ""}]`);
         ctx.ui.notify(lines.length ? lines.join("\n") : "no results", "info");
       } catch { ctx.ui.notify(text.slice(0, 800), "info"); }
     },

@@ -37,7 +37,7 @@ function createServer(ctx: ServerContext): McpServer {
         const usage = new UsageTracker(openGlobalUsageDb());
         try {
           const result = await tool.handler(ctx, args as Record<string, unknown>);
-          const text = JSON.stringify(result, null, 2);
+          const text = JSON.stringify(result);
           let savedOverride: number | undefined;
           if (DISCOVERY_TOOLS.has(tool.name)) {
             try {

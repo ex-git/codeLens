@@ -51,7 +51,16 @@ describe("ctxSearch", () => {
     const paths = r.results.map((h) => h.path);
     expect(paths).toContain("src/auth/session.ts");
     expect(r.results[0]!.handle).toBeTruthy();
-    expect(r.results[0]!.snippet).toContain("**validateSession**");
+    expect(r.results[0]!.preview).toContain("**validateSession**");
+    db.close();
+  });
+
+  it("includes query and count in the result envelope", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxSearch(db, "validateSession");
+    expect(r.query).toBe("validateSession");
+    expect(r.count).toBe(r.results.length);
     db.close();
   });
 
@@ -94,8 +103,9 @@ describe("ctxSearch", () => {
     buildIndex(db, scope!);
     const r = ctxSearch(db, "validateSession", { snippet: "none" });
     expect(r.results.length).toBeGreaterThan(0);
-    expect(r.results.every((h) => h.snippet === "")).toBe(true);
+    expect(r.results.every((h) => h.preview === "")).toBe(true);
     expect(r.results[0]!.handle).toBeTruthy();
+    expect(r.results[0]!.lines).toMatch(/^\d+-\d+$/);
     db.close();
   });
 
@@ -106,9 +116,9 @@ describe("ctxSearch", () => {
     const full = ctxSearch(db, "validateSession", { snippet: "full" });
     const h = head.results.find((x) => x.path === "src/auth/session.ts")!;
     const f = full.results.find((x) => x.path === "src/auth/session.ts")!;
-    expect(h.snippet).toContain("**validateSession**");
-    expect(h.snippet.split("\n").length).toBe(1); // single line
-    expect(h.snippet.length).toBeLessThanOrEqual(f.snippet.length);
+    expect(h.preview).toContain("**validateSession**");
+    expect(h.preview.split("\n").length).toBe(1); // single line
+    expect(h.preview.length).toBeLessThanOrEqual(f.preview.length);
     db.close();
   });
 
@@ -116,7 +126,7 @@ describe("ctxSearch", () => {
     const db = openMemoryDb();
     buildIndex(db, scope!);
     const r = ctxSearch(db, "validateSession");
-    expect(r.results[0]!.snippet).toContain("**validateSession**");
+    expect(r.results[0]!.preview).toContain("**validateSession**");
     db.close();
   });
 
@@ -126,8 +136,8 @@ describe("ctxSearch", () => {
     const r = ctxSearch(db, "access", { limit: 5, snippet: "compact" });
     const hit = r.results.find((x) => x.path === "src/auth/camel.ts");
     expect(hit).toBeDefined();
-    expect(hit!.snippet).toContain("renew**Access**Token");
-    expect(hit!.snippet).not.toContain("renew access token");
+    expect(hit!.preview).toContain("renew**Access**Token");
+    expect(hit!.preview).not.toContain("renew access token");
     db.close();
   });
 
@@ -144,8 +154,8 @@ describe("ctxSearch", () => {
     const r = ctxSearch(db, "targetHandler sharedToken", { limit: 10, snippet: "none" });
     const multi = r.results.filter((x) => x.path === "src/auth/multi.ts");
     expect(multi.length).toBeGreaterThanOrEqual(2);
-    expect(multi[0]).toMatchObject({ startLine: 1, endLine: 3 });
-    expect(multi[0]!.why).toEqual(expect.arrayContaining(["symbol", "exact"]));
+    expect(multi[0]!.lines).toBe("1-3");
+    expect(multi[0]!.why.split(",")).toEqual(expect.arrayContaining(["symbol", "exact"]));
     db.close();
   });
 });

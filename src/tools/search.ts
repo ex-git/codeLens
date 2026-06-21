@@ -5,6 +5,7 @@ import { rank, normalize, type SignalScore } from "../search/rank.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
 import { splitIdentifiers } from "../search/identifiers.js";
+import { queryTokens, quoteFtsTerm } from "../search/query.js";
 import type { GitScope } from "../git/scope.js";
 
 /**
@@ -18,20 +19,20 @@ import type { GitScope } from "../git/scope.js";
 export interface SearchHandle {
   handle: string;
   path: string;
-  startLine: number;
-  endLine: number;
+  lines: string;
   score: number;
-  snippet: string;
-  cursor: string;
-  why?: string[];
+  why: string;
+  preview: string;
 }
 
 export interface SearchResult {
   indexId: string;
+  query: string;
+  count: number;
   results: SearchHandle[];
-  nextCursor: string | null;
   freshness: "fresh" | "partial";
   pendingFiles?: number;
+  nextCursor?: string | null;
   /** Graph neighbors of the top result, when `related: true` was requested. */
   related?: GraphNeighbor[];
 }
@@ -45,7 +46,7 @@ const RICH_PREVIEW_TOP_N = 3;
 const QUERY_EXPANSION_MAX_TERMS = 16;
 
 function queryTerms(query: string): string[] {
-  const original = query.split(/[^A-Za-z0-9_]+/i).filter((t) => t.length > 0);
+  const original = queryTokens(query);
   const seen = new Set(original.map((t) => t.toLowerCase()));
   const expanded = splitIdentifiers(query, { maxTokens: QUERY_EXPANSION_MAX_TERMS });
   const terms = [...original];
@@ -58,12 +59,8 @@ function queryTerms(query: string): string[] {
   return terms;
 }
 
-function quoteFtsTerm(term: string): string {
-  return `"${term.replace(/"/g, "\"\"")}"`;
-}
-
 function ftsQuery(query: string): string {
-  const original = query.split(/[^A-Za-z0-9_]+/i).filter((t) => t.length > 0);
+  const original = queryTokens(query);
   if (original.length === 0) return "";
   const expressions: string[] = [];
   const seen = new Set<string>();
@@ -180,7 +177,7 @@ export function ctxSearch(
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   const offset = decodeCursor(opts?.cursor);
   const fts = ftsQuery(query);
-  if (fts.length === 0) return { indexId, results: [], nextCursor: null, freshness: "fresh" };
+  if (fts.length === 0) return { indexId, query, count: 0, results: [], freshness: "fresh" };
   const ftsRows = gatherFts(db, indexId, fts, limit * 4, opts?.contentType);
   const signals = buildSignals(db, indexId, query, ftsRows);
   const ranked = rank(signals);
@@ -220,16 +217,16 @@ export function ctxSearch(
     return {
       handle: r.chunkId ?? "",
       path: r.path,
-      startLine: r.startLine,
-      endLine: r.endLine,
-      score: r.score,
-      snippet: src ? renderPreview(src, rankOffset) : r.path,
-      cursor: encodeCursor(rankOffset, r.chunkId ?? `${rankOffset}`),
-      why: r.why,
+      lines: `${r.startLine}-${r.endLine}`,
+      score: Math.round(r.score * 1000) / 1000,
+      why: r.why.join(","),
+      preview: src ? renderPreview(src, rankOffset) : "",
     };
   });
   const nextCursor = hasMore && results.length > 0 ? encodeCursor(offset + results.length, results[results.length - 1]!.handle || `${offset}`) : null;
-  const out: SearchResult = { indexId, results, nextCursor, freshness, pendingFiles };
+  const out: SearchResult = { indexId, query, count: results.length, results, freshness };
+  if (pendingFiles !== undefined) out.pendingFiles = pendingFiles;
+  if (nextCursor) out.nextCursor = nextCursor;
   if (opts?.related && results[0]) {
     try {
       out.related = neighbors(db, indexId, results[0]!.path, { types: ["imports", "imported_by", "tests"], depth: 1 });
