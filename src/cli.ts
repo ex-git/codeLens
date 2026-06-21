@@ -81,10 +81,10 @@ export async function cli(args: string[]): Promise<number> {
     return 0;
   }
   if (cmd === "install") {
-    const { target, location, yes, command } = parseInstallArgs(args.slice(1));
+    const { target, location, yes, command, autoIndex } = parseInstallArgs(args.slice(1));
     const serverCommand = command ?? defaultServerCommand();
     if (!serverCommand) { console.error("could not determine the server executable. Run install.sh first, or pass --command <path-to-launcher>."); return 1; }
-    const report = runInstall({ serverCommand, location, target, yes, instructions: true });
+    const report = runInstall({ serverCommand, location, target, yes, instructions: true, autoIndex });
     console.log(`Server command: ${serverCommand}`);
     console.log(`Configured (${report.configured.filter((c) => c.wrote).length} written, ${report.configured.filter((c) => c.already).length} already):`);
     for (const c of report.configured) console.log(`  ${c.host}: ${c.path} ${c.already ? "(already configured)" : c.wrote ? "(written)" : "(no change)"}`);
@@ -203,11 +203,12 @@ function defaultServerCommand(): string | null {
   return null;
 }
 
-function parseInstallArgs(args: string[]): { target: import("./installer/agents.js").TargetSpec; location: Location; yes: boolean; command?: string; args?: string[] } {
+function parseInstallArgs(args: string[]): { target: import("./installer/agents.js").TargetSpec; location: Location; yes: boolean; command?: string; args?: string[]; autoIndex?: string } {
   let target: "auto"|"all"|"none"|string[] = "auto";
   let location: Location = "global";
   let yes = false;
   let command: string | undefined;
+  let autoIndex: string | undefined;
   const rest: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
@@ -221,10 +222,11 @@ function parseInstallArgs(args: string[]): { target: import("./installer/agents.
     }
     else if (a === "--yes" || a === "-y") yes = true;
     else if (a === "--command" || a.startsWith("--command=")) command = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
+    else if (a === "--auto-index" || a.startsWith("--auto-index=")) autoIndex = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
     else if (a === "--args" || a.startsWith("--args=")) {
       const v = a.includes("=") ? a.slice(a.indexOf("=") + 1) : args[++i];
       rest.push(...(v ?? "").split(" "));
     }
   }
-  return { target, location, yes, command, args: rest };
+  return { target, location, yes, command, args: rest, autoIndex };
 }

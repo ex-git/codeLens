@@ -9,6 +9,7 @@ import { UsageTracker, openGlobalUsageDb, DISCOVERY_TOOLS, TRACKED_TOOLS, estima
 import { getActiveIndexId } from "./index/manager.js";
 import { scheduleAutoPrune } from "./index/autoprune.js";
 import { FileWatcher } from "./index/watcher.js";
+import { buildIndex } from "./index/indexer.js";
 import { cli } from "./cli.js";
 import { registerWatcher } from "./index/reindex.js";
 import { VERSION } from "./version.js";
@@ -101,6 +102,27 @@ export async function main(): Promise<void> {
   // we fell back to process.cwd() and should still query MCP Roots.
   let rootsChecked = isUsableCwd(parsed.cwd);
   const serverRef: { current?: McpServer } = {};
+  
+  let hasTriggeredAutoIndex = false;
+
+  async function checkAndTriggerAutoIndex() {
+    if (hasTriggeredAutoIndex || parsed.autoIndex === "never" || !ctx.repoRoot) return;
+    hasTriggeredAutoIndex = true;
+    
+    const scope = detectScope(ctx.repoRoot);
+    if (!scope) return;
+    
+    const isMissing = !getActiveIndexId();
+    if (parsed.autoIndex === "always" || (parsed.autoIndex === "missing" && isMissing)) {
+      // background index
+      setTimeout(() => {
+        try {
+          const s = detectScope(ctx.repoRoot);
+          if (s) buildIndex(ctx.coreDb, s);
+        } catch { /* background fail is fine */ }
+      }, 100);
+    }
+  }
 
   async function switchRoot(repoRoot: string): Promise<void> {
     if (repoRoot === ctx.repoRoot) return;
@@ -119,11 +141,15 @@ export async function main(): Promise<void> {
   }
 
   async function beforeTool(): Promise<void> {
-    if (rootsChecked) return;
-    rootsChecked = true;
-    if (!serverRef.current) return;
-    const root = await rootFromMcpRoots(serverRef.current);
-    if (root) await switchRoot(root);
+    if (!rootsChecked) {
+      rootsChecked = true;
+      if (serverRef.current) {
+        const root = await rootFromMcpRoots(serverRef.current);
+        if (root) await switchRoot(root);
+      }
+    }
+    // Now that root is finalized, trigger auto index if needed
+    checkAndTriggerAutoIndex();
   }
 
   const server = createServer(ctx, beforeTool);
