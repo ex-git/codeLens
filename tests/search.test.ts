@@ -148,6 +148,18 @@ describe("ctxSearch", () => {
     db.close();
   });
 
+  it("flags known-stale result files when refresh budget is exhausted", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    writeFileSync(join(repo, "src", "auth", "session.ts"),
+      "export function validateSession(token: string): boolean {\n  return token.length > 1;\n}\n");
+    const r = ctxSearch(db, "validateSession", { scope: scope!, refreshBudgetMs: -1 });
+    expect(r.freshness).toBe("partial");
+    expect(r.pendingFiles).toBeGreaterThan(0);
+    expect(r.results.find((h) => h.path === "src/auth/session.ts")?.stale).toBe(true);
+    db.close();
+  });
+
   it("ranks the matching symbol chunk above sibling chunks from the same file", () => {
     const db = openMemoryDb();
     buildIndex(db, scope!);

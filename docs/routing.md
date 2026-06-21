@@ -14,14 +14,16 @@ right tool for the job.
 
 Prefer codelens when:
 - you don't know the exact name/string (semantic or conceptual search via `cl_search`)
-- you need relationships — importers, tests, callers (`cl_related`) — or a
-  per-file outline / repo map (`cl_map`)
+- you need broad orientation in one call (`cl_explore`) — "how does X work?", flows, or unfamiliar areas
+- you need relationships — importers, tests, callers (`cl_related`) — or blast radius before edits (`cl_impact`)
+- you need a per-file outline / repo map (`cl_map`)
 - the repo is large or unfamiliar, or you'd otherwise grep + read many files
 - branch-scoped correctness matters (results won't leak across branches)
 
 Then use `cl_expand` to read the exact current content of a chosen target (it
 reads from disk — never stale), and `cl_save`/`cl_load` to persist working
-context across compaction.
+context across compaction. If a query result has `stale:true`, read that file
+from disk before relying on indexed snippets/edges.
 
 ## When raw grep/find/read is fine (or better)
 
@@ -44,9 +46,11 @@ branch's index automatically.
 
 ## Freshness
 
-`cl_search` auto-refreshes changed files before returning (budget-bounded). If
-the response carries `freshness: "partial"` and `pendingFiles > 0`, some very
-recent edits may not yet be reflected — call `cl_refresh` or re-query.
+Query tools auto-refresh changed files before returning (budget-bounded). If
+the response carries `freshness: "partial"`, `pendingFiles > 0`, or per-result
+`stale:true`, some recent edits were not reindexed within the budget. Read those
+files directly with `cl_expand`/raw read, then call `cl_refresh` or re-query when
+you need indexed relationships to catch up.
 
 ## Tool quick reference
 
@@ -55,7 +59,9 @@ recent edits may not yet be reflected — call `cl_refresh` or re-query.
 | `cl_current` | repo/branch/index status + freshness |
 | `cl_refresh` | build/update the current branch index |
 | `cl_search` | hybrid ranked search → compact handles |
+| `cl_explore` | one-call grouped search + previews + relationship map |
 | `cl_related` | graph neighbors (imports/tests/callers) |
+| `cl_impact` | callers/callees/affected files/tests before edits |
 | `cl_map` | per-file symbol outline (repo map) |
 | `cl_expand` | exact current file content by path/range |
 | `cl_save` / `cl_load` | persist + reload working context |

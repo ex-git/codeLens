@@ -3,7 +3,9 @@ import type Database from "better-sqlite3";
 import { ctxCurrent } from "./current.js";
 import { ctxRefresh } from "./refresh.js";
 import { ctxSearch } from "./search.js";
+import { ctxExplore } from "./explore.js";
 import { ctxRelated } from "./related.js";
+import { ctxImpact } from "./impact.js";
 import { ctxExpand } from "./expand.js";
 import { ctxMap } from "./map.js";
 import { ctxSave, ctxLoad } from "./save.js";
@@ -14,6 +16,7 @@ import { UsageTracker, openGlobalUsageDb } from "../obs/usage.js";
 import { detectScope } from "../git/scope.js";
 import { getOrCreateIndex, getActiveIndexId } from "../index/manager.js";
 import { buildIndex } from "../index/indexer.js";
+import { ensureFreshIndex } from "../index/reindex.js";
 
 /**
  * Tool registry (Step 24).
@@ -44,11 +47,13 @@ function withScope(ctx: ServerContext) {
 function ensureActive(ctx: ServerContext): string {
   const scope = withScope(ctx);
   if (!scope) throw new Error("not inside a git repo (or plain dir support not enabled)");
-  // build the index if none active for this scope
+  // Build the first index eagerly, then use budget-bounded reconciliation on
+  // subsequent query tools so out-of-band edits are not silently missed.
   if (!getActiveIndexId()) {
     buildIndex(ctx.coreDb, scope);
   } else {
     getOrCreateIndex(ctx.coreDb, scope);
+    ensureFreshIndex(ctx.coreDb, scope);
   }
   return getActiveIndexId()!;
 }
@@ -75,7 +80,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "cl_search",
     description:
-      "Hybrid search over the current branch index: FTS5 BM25 + symbol-name match + graph proximity, fused via weighted ranking. Compact ranked handles, cursor pagination. Use BEFORE grep/find/read for code discovery. Pass related:true to also get graph neighbors of the top result in one call.\n\nRETURNS: {indexId, results:[{handle,path,startLine,endLine,score,snippet,why}], nextCursor, freshness, pendingFiles}\n\nWHEN NOT: editing exact files (use cl_expand or read instead).\n\nEXAMPLE: cl_search(query: \"session validation\", limit: 5)",
+      "Hybrid search over the current branch index: FTS5 BM25 + symbol-name match + graph proximity, fused via weighted ranking. Compact ranked handles, cursor pagination. Use BEFORE grep/find/read for code discovery. Pass related:true to also get graph neighbors of the top result in one call.\n\nRETURNS: {indexId, query, count, results:[{handle,path,lines,score,why,preview,stale?}], nextCursor, freshness, pendingFiles}\n\nWHEN NOT: editing exact files (use cl_expand or read instead).\n\nEXAMPLE: cl_search(query: \"session validation\", limit: 5)",
     schema: {
       query: z.string().describe("Search query (2-4 specific technical terms recommended)."),
       limit: z.coerce.number().optional().default(5).describe("Results per page (default 5)."),
@@ -89,10 +94,32 @@ export const TOOLS: ToolDef[] = [
       return ctxSearch(ctx.coreDb, args.query as string, {
         limit: args.limit as number | undefined,
         cursor: args.cursor as string | undefined,
-        scope: withScope(ctx) ?? undefined,
         contentType: args.contentType as "code" | "prose" | undefined,
         related: args.related as boolean | undefined,
         snippet: args.snippet as "none" | "headline" | "compact" | "full" | undefined,
+      });
+    },
+  },
+  {
+    name: "cl_explore",
+    description:
+      "One-call code exploration over the current branch index: hybrid search grouped by file, compact source previews, signature-collapse, and a relationship/blast map. Use for broad questions like 'how does X work?' before falling back to separate search/expand/related calls.\n\nRETURNS: {indexId, query, count, files:[{path, stale?, results:[{handle,lines,score,why,preview,signature?,collapsed?,stale?}]}], related:[{sourcePath,path,edgeType,hops,confidence,stale?}], freshness, pendingFiles?, nextCursor?}\n\nEXAMPLE: cl_explore(query: \"session validation flow\", limit: 8)",
+    schema: {
+      query: z.string().describe("Exploration query (2-6 specific technical terms recommended)."),
+      limit: z.coerce.number().optional().default(8).describe("Maximum ranked chunks to group into files (default 8)."),
+      cursor: z.string().optional().describe("Pagination cursor from a prior result's nextCursor."),
+      contentType: z.enum(["code", "prose"]).optional().describe("Filter by chunk type: 'code' or 'prose'."),
+      snippet: z.enum(["none", "headline", "compact", "full"]).optional().describe("Preview verbosity. Default compact."),
+      relatedDepth: z.coerce.number().optional().default(1).describe("Relationship map depth (default 1, capped at 3)."),
+    },
+    handler: (ctx, args) => {
+      ensureActive(ctx);
+      return ctxExplore(ctx.coreDb, args.query as string, {
+        limit: args.limit as number | undefined,
+        cursor: args.cursor as string | undefined,
+        contentType: args.contentType as "code" | "prose" | undefined,
+        snippet: args.snippet as "none" | "headline" | "compact" | "full" | undefined,
+        relatedDepth: args.relatedDepth as number | undefined,
       });
     },
   },
@@ -112,6 +139,26 @@ export const TOOLS: ToolDef[] = [
         types: args.types as string[] | undefined,
         depth: args.depth as number | undefined,
         direction: args.direction as "out" | "in" | "both" | undefined,
+      });
+    },
+  },
+  {
+    name: "cl_impact",
+    description:
+      "Blast-radius analysis for a symbol or file in the current branch index. Returns callers, callees, affected files, and affected tests with hops/confidence. Use before changing shared code.\n\nRETURNS: {indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, depth, confidenceNote, freshness?, pendingFiles?}\n\nEXAMPLE: cl_impact(symbol: \"validateSession\", path: \"src/auth/session.ts\", depth: 2)",
+    schema: {
+      symbol: z.string().optional().describe("Symbol name to analyze. If ambiguous, candidates are returned."),
+      path: z.string().optional().describe("Repo-relative path to analyze or to disambiguate a symbol."),
+      depth: z.coerce.number().optional().default(2).describe("Traversal depth (default 2, capped at 3)."),
+      includeTests: z.boolean().optional().default(true).describe("Include affected test files (default true)."),
+    },
+    handler: (ctx, args) => {
+      ensureActive(ctx);
+      return ctxImpact(ctx.coreDb, {
+        symbol: args.symbol as string | undefined,
+        path: args.path as string | undefined,
+        depth: args.depth as number | undefined,
+        includeTests: args.includeTests as boolean | undefined,
       });
     },
   },

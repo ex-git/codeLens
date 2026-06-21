@@ -6,6 +6,7 @@ import { indexFile, deleteFileFromIndex } from "./fts.js";
 import { getOrCreateIndex } from "./manager.js";
 import { acquireWriteLease, releaseWriteLease, newOwnerId } from "./queue.js";
 import type { FileWatcher } from "./watcher.js";
+import { getPendingPaths, setPendingPaths } from "./staleness.js";
 
 /**
  * Incremental reindex (Step 10) + cross-process write lease (Step 11).
@@ -50,7 +51,7 @@ export function ensureFreshIndex(
   // since the last full scan, and we scanned recently, skip the re-scan
   // entirely (the quiet-period optimization). A periodic full scan
   // (FULL_SCAN_INTERVAL_MS) catches anything the watcher missed.
-  if (watcher?.active && watcher.dirty.size === 0 && (Date.now() - lastFullScanAt) < FULL_SCAN_INTERVAL_MS) {
+  if (watcher?.active && watcher.dirty.size === 0 && getPendingPaths(indexId).size === 0 && (Date.now() - lastFullScanAt) < FULL_SCAN_INTERVAL_MS) {
     return { refreshed: 0, deleted: 0, pending: 0, durationMs: 0 };
   }
 
@@ -75,9 +76,11 @@ export function ensureFreshIndex(
     const toProcess = [...diff.changed, ...diff.newFiles];
     let refreshed = 0;
     let pending = 0;
+    let pendingPaths: string[] = [];
     for (const f of toProcess) {
       if (Date.now() - start > budget) {
-        pending = toProcess.length - refreshed;
+        pendingPaths = toProcess.slice(refreshed).map((p) => p.path);
+        pending = pendingPaths.length;
         break;
       }
       try {
@@ -87,6 +90,7 @@ export function ensureFreshIndex(
         // skip unreadable
       }
     }
+    setPendingPaths(indexId, pendingPaths);
 
     let deleted = 0;
     for (const d of diff.deleted) {

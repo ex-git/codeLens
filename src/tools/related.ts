@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getActiveIndexId, getIndex } from "../index/manager.js";
+import { getPendingPaths } from "../index/staleness.js";
 import { neighbors as graphNeighbors, testsFor, type GraphNeighbor } from "../graph/query.js";
 
 /**
@@ -13,11 +14,15 @@ export interface RelatedHandle {
   edgeType: string;
   hops: number;
   confidence: number;
+  /** True when this file is known stale and should be read from disk directly. */
+  stale?: boolean;
 }
 
 export interface RelatedResult {
   indexId: string;
   results: RelatedHandle[];
+  freshness?: "fresh" | "partial";
+  pendingFiles?: number;
 }
 
 export function ctxRelated(
@@ -28,14 +33,21 @@ export function ctxRelated(
   const indexId = getActiveIndexId();
   if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
   const ns: GraphNeighbor[] = graphNeighbors(db, indexId, path, opts ?? {});
-  const results: RelatedHandle[] = ns.map((n) => ({
-    handle: `rel:${n.path}`,
-    path: n.path,
-    edgeType: n.edgeType,
-    hops: n.hops,
-    confidence: n.confidence,
-  }));
-  return { indexId, results };
+  const pendingPaths = getPendingPaths(indexId);
+  const results: RelatedHandle[] = ns.map((n) => {
+    const item: RelatedHandle = {
+      handle: `rel:${n.path}`,
+      path: n.path,
+      edgeType: n.edgeType,
+      hops: n.hops,
+      confidence: n.confidence,
+    };
+    if (pendingPaths.has(n.path)) item.stale = true;
+    return item;
+  });
+  const out: RelatedResult = { indexId, results, freshness: pendingPaths.size > 0 ? "partial" : "fresh" };
+  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
+  return out;
 }
 
 /** cl_related variant: tests for a given source path. */
@@ -43,8 +55,16 @@ export function ctxRelatedTests(db: Database.Database, sourcePath: string): Rela
   const indexId = getActiveIndexId();
   if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
   const ns = testsFor(db, indexId, sourcePath);
-  return {
+  const pendingPaths = getPendingPaths(indexId);
+  const out: RelatedResult = {
     indexId,
-    results: ns.map((n) => ({ handle: `rel:${n.path}`, path: n.path, edgeType: n.edgeType, hops: n.hops, confidence: n.confidence })),
+    results: ns.map((n) => {
+      const item: RelatedHandle = { handle: `rel:${n.path}`, path: n.path, edgeType: n.edgeType, hops: n.hops, confidence: n.confidence };
+      if (pendingPaths.has(n.path)) item.stale = true;
+      return item;
+    }),
+    freshness: pendingPaths.size > 0 ? "partial" : "fresh",
   };
+  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
+  return out;
 }

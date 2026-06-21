@@ -3,6 +3,7 @@ import type { GitScope } from "../git/scope.js";
 import { getOrCreateIndex, getActiveIndexId } from "./manager.js";
 import { scanFiles, type ScannedFile } from "./scanner.js";
 import { indexFile, deleteFileFromIndex } from "./fts.js";
+import { setPendingPaths } from "./staleness.js";
 
 /**
  * Top-level indexer (Step 7).
@@ -42,6 +43,7 @@ export function buildIndex(db: Database.Database, scope: GitScope): BuildResult 
       skipped++;
     }
   }
+  setPendingPaths(indexId, []);
   return { indexId, indexedFiles, totalChunks, skipped };
 }
 

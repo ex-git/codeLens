@@ -5,10 +5,25 @@ All notable changes to this project are documented here. This project follows
 
 ## [2.0.1] - 2026-06-20
 
+### Added
+- `cl_explore`: one-call grouped search with compact previews, signatures,
+  duplicate-collapse metadata, and a relationship map.
+- `cl_impact`: branch-scoped callers/callees/affected-files/affected-tests
+  analysis with hop counts, confidence, ambiguity candidates, and confidence
+  notes.
+
+### Changed
+- Query tools now share freshness reconciliation and can surface per-result
+  `stale:true` plus `freshness:"partial"` / `pendingFiles` when refresh work is
+  budget-limited.
+- Removed the CodeGraph comparison document/link and stale self-deprecating
+  comparison language.
+
 ### Fixed
 - Docs: corrected README Limitations — cold index for 2000 files is ~3.5s (was
   a stale ~1.6s), the ranking signal list now includes path/code/exact, and the
   identifier-aware subtoken matching is documented (no vector/semantic layer).
+- Fixed stale `cl_search` registry description to match the v2 output shape.
 
 ## [2.0.0] - 2026-06-20
 
