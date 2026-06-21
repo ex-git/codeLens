@@ -155,7 +155,8 @@ describe("installer: cursor routing rule (.mdc)", () => {
     const p = join(fakeHome, ".cursor", "rules", "codelens.mdc");
     const content = readFileSync(p, "utf-8");
     expect(content).toContain("alwaysApply: true");
-    expect(content).toContain("cl_search");
+    expect(content).toContain("cl_explore");
+    expect(content).toContain("cl_impact");
   });
   it("reinstall is idempotent (already=true)", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: true });
@@ -176,7 +177,8 @@ describe("installer: codex routing (AGENTS.md)", () => {
     const p = join(fakeHome, ".codex", "AGENTS.md");
     const content = readFileSync(p, "utf-8");
     expect(content).toContain(INSTRUCTIONS_START);
-    expect(content).toContain("cl_search");
+    expect(content).toContain("cl_explore");
+    expect(content).toContain("cl_impact");
   });
   it("uninstall removes the block", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["codex"], instructions: true });
@@ -193,10 +195,14 @@ describe("installer: claude slash commands", () => {
     const usage = readFileSync(join(dir, "codelens-usage.md"), "utf-8");
     expect(usage).toContain("cl_usage");
     expect(existsSync(join(dir, "codelens-search.md"))).toBe(true);
+    expect(existsSync(join(dir, "codelens-explore.md"))).toBe(true);
+    expect(existsSync(join(dir, "codelens-impact.md"))).toBe(true);
     expect(existsSync(join(dir, "codelens-doctor.md"))).toBe(true);
     expect(existsSync(join(dir, "codelens-stats.md"))).toBe(true);
     // search command uses $ARGUMENTS
     expect(readFileSync(join(dir, "codelens-search.md"), "utf-8")).toContain("$ARGUMENTS");
+    expect(readFileSync(join(dir, "codelens-explore.md"), "utf-8")).toContain("cl_explore");
+    expect(readFileSync(join(dir, "codelens-impact.md"), "utf-8")).toContain("cl_impact");
   });
   it("uninstall removes the command files", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["claude"], instructions: false });

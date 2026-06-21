@@ -51,6 +51,26 @@ describe("ctxExplore", () => {
     db.close();
   });
 
+  it("caps file groups, per-file results, and related entries with truncation metadata", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxExplore(db, "validateSession duplicate", { limit: 10, maxFiles: 1, maxResultsPerFile: 1, maxRelated: 1 });
+    expect(r.files.length).toBeLessThanOrEqual(1);
+    expect(r.files.every((f) => f.results.length <= 1)).toBe(true);
+    expect(r.related.length).toBeLessThanOrEqual(1);
+    expect(r.truncated).toBeDefined();
+    db.close();
+  });
+
+  it("orders file groups by best result score", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxExplore(db, "validateSession", { limit: 5, maxFiles: 5 });
+    const scores = r.files.map((f) => f.results[0]?.score ?? 0);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    db.close();
+  });
+
   it("returns empty groups for an empty/unsafe query", () => {
     const db = openMemoryDb();
     buildIndex(db, scope!);

@@ -39,8 +39,10 @@
     "adapters/pi",
     "README.md",
     "docs/agent-guide.md",
+    "docs/how-it-works.md",
     "docs/routing.md",
     "docs/tools.md",
+    "docs/usage-metrics.md",
     "docs/codelens-preview.png"
   ],
   "pi": {
@@ -58,7 +60,8 @@
     "mcp:smoke": "node build/src/server.js --smoke",
     "start": "node build/src/server.js",
     "benchmark": "npx tsx bench/run.ts",
-    "quality": "npx tsx bench/quality.ts"
+    "quality": "npx tsx bench/quality.ts",
+    "eval:agent": "npx tsx bench/agent-eval.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",

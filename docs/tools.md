@@ -24,8 +24,8 @@ JSON-serialized text content.
 - **Line-range format**: `cl_search` reports `lines` as a `"start-end"` string for compact display; `cl_map` and `cl_expand` use numeric `startLine`/`endLine` for programmatic use. This difference is intentional.
 
 ## cl_explore
-- **Input**: `{ query: string, limit?: number=8, cursor?: string, contentType?: "code"|"prose", snippet?: "none"|"headline"|"compact"|"full", relatedDepth?: number=1 }`
-- **Returns**: `{ indexId, query, count, files:[{path, stale?, results:[{handle,lines,score,why,preview,signature?,collapsed?,stale?}]}], related:[{sourcePath,path,edgeType,hops,confidence,stale?}], freshness, pendingFiles?, nextCursor? }`
+- **Input**: `{ query: string, limit?: number=8, cursor?: string, contentType?: "code"|"prose", snippet?: "none"|"headline"|"compact"|"full", relatedDepth?: number=1, maxFiles?: number=6, maxResultsPerFile?: number=3, maxRelated?: number=20 }`
+- **Returns**: `{ indexId, query, count, files:[{path, stale?, results:[{handle,lines,score,why,preview,signature?,collapsed?,stale?}]}], related:[{sourcePath,path,edgeType,hops,confidence,stale?}], freshness, pendingFiles?, nextCursor?, truncated? }`
 - **Use**: broad orientation in one call — "how does X work?", "show the flow around Y", or surveying an unfamiliar area. It fuses `cl_search` + grouped previews + graph relationships; use `cl_search` when you only need to locate handles.
 
 ## cl_related
@@ -35,8 +35,8 @@ JSON-serialized text content.
 
 ## cl_impact
 - **Input**: `{ symbol?: string, path?: string, depth?: number=2, includeTests?: boolean=true }`
-- **Returns**: `{ indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, depth, confidenceNote, freshness?, pendingFiles? }`
-- **Use**: before changing shared code. Pass `symbol` plus `path` when possible; if a symbol is ambiguous, CodeLens returns `candidates` instead of guessing. Impact is edge-derived and includes confidence/hop counts; use `cl_expand` to inspect exact current code before editing.
+- **Returns**: `{ indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, depth, summary?, confidenceNote, freshness?, pendingFiles? }`
+- **Use**: before changing shared code. Pass `symbol` plus `path` when possible; if a symbol is ambiguous, CodeLens returns `candidates` instead of guessing. Impact is edge-derived and includes confidence/hop counts plus provenance labels (`graph` or conservative `path-heuristic`); use `cl_expand` to inspect exact current code before editing.
 
 ## cl_map
 - **Input**: `{ path?: string, limit?: number=50, all?: boolean }`

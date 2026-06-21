@@ -188,6 +188,7 @@ npm test            # vitest run
 npm run build       # tsc + copy schema assets
 npm run benchmark   # performance gate (search <50ms, cold <3s)
 npm run quality     # retrieval-quality fixture (recall@5/MRR/top-1/latency)
+npm run eval:agent  # deterministic with/without-CodeLens discovery proxy
 ```
 
 ## Docs

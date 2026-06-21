@@ -227,6 +227,8 @@ class ClaudeCodeTarget implements HostAdapter {
       { name: "codelens-stats.md", content: "Call the `cl_stats` MCP tool and report the current index statistics (files/symbols/chunks/edges)." },
       { name: "codelens-doctor.md", content: "Call the `cl_doctor` MCP tool and report the health check results." },
       { name: "codelens-search.md", content: "Call the `cl_search` MCP tool with query: $ARGUMENTS (limit 5). Show the ranked handles." },
+      { name: "codelens-explore.md", content: "Call the `cl_explore` MCP tool with query: $ARGUMENTS (limit 8). Summarize grouped files and relationships." },
+      { name: "codelens-impact.md", content: "Call the `cl_impact` MCP tool for symbol/path: $ARGUMENTS. Summarize callers, callees, affected files, and affected tests." },
       { name: "codelens-refresh.md", content: "Call the `cl_refresh` MCP tool to build/update the current branch index, then report the result." },
     ];
   }

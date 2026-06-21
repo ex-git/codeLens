@@ -26,6 +26,12 @@ export interface ExploreRelation extends GraphNeighbor {
   stale?: boolean;
 }
 
+export interface ExploreTruncated {
+  files?: number;
+  results?: number;
+  related?: number;
+}
+
 export interface ExploreResult {
   indexId: string;
   query: string;
@@ -35,6 +41,8 @@ export interface ExploreResult {
   freshness: "fresh" | "partial";
   pendingFiles?: number;
   nextCursor?: string | null;
+  /** Counts omitted by payload caps. */
+  truncated?: ExploreTruncated;
 }
 
 interface SymbolSigRow {
@@ -44,9 +52,17 @@ interface SymbolSigRow {
 }
 
 const DEFAULT_LIMIT = 8;
+const DEFAULT_MAX_FILES = 6;
+const DEFAULT_MAX_RESULTS_PER_FILE = 3;
+const DEFAULT_MAX_RELATED = 20;
 const DEFAULT_RELATED_DEPTH = 1;
 const MAX_RELATED_DEPTH = 3;
 const RELATED_SOURCE_LIMIT = 3;
+
+function clampPositive(value: number | undefined, fallback: number, max: number): number {
+  if (value === undefined) return fallback;
+  return Math.min(Math.max(1, Math.floor(value)), max);
+}
 
 function signatureFor(db: Database.Database, indexId: string, handle: string): string | undefined {
   if (!handle) return undefined;
@@ -77,7 +93,7 @@ function toExploreItem(hit: SearchHandle, signature?: string): ExploreItem {
 export function ctxExplore(
   db: Database.Database,
   query: string,
-  opts?: { limit?: number; cursor?: string; contentType?: "code" | "prose"; snippet?: SnippetMode; relatedDepth?: number },
+  opts?: { limit?: number; cursor?: string; contentType?: "code" | "prose"; snippet?: SnippetMode; relatedDepth?: number; maxFiles?: number; maxResultsPerFile?: number; maxRelated?: number },
 ): ExploreResult {
   const indexId = getActiveIndexId();
   if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
@@ -120,10 +136,29 @@ export function ctxExplore(
     }
   }
 
+  const maxFiles = clampPositive(opts?.maxFiles, DEFAULT_MAX_FILES, 50);
+  const maxResultsPerFile = clampPositive(opts?.maxResultsPerFile, DEFAULT_MAX_RESULTS_PER_FILE, 20);
+  const maxRelated = clampPositive(opts?.maxRelated, DEFAULT_MAX_RELATED, 100);
+  let omittedResults = 0;
+  for (const file of byFile.values()) {
+    file.results.sort((a, b) => b.score - a.score || a.lines.localeCompare(b.lines));
+    if (file.results.length > maxResultsPerFile) {
+      omittedResults += file.results.length - maxResultsPerFile;
+      file.results = file.results.slice(0, maxResultsPerFile);
+    }
+  }
+  const orderedFiles = [...byFile.values()].sort((a, b) => {
+    const aScore = a.results[0]?.score ?? 0;
+    const bScore = b.results[0]?.score ?? 0;
+    return bScore - aScore || a.path.localeCompare(b.path);
+  });
+  const omittedFiles = Math.max(0, orderedFiles.length - maxFiles);
+  const files = orderedFiles.slice(0, maxFiles);
+
   const relatedDepth = Math.min(Math.max(1, opts?.relatedDepth ?? DEFAULT_RELATED_DEPTH), MAX_RELATED_DEPTH);
   const related: ExploreRelation[] = [];
   const seenRelated = new Set<string>();
-  for (const sourcePath of [...byFile.keys()].slice(0, RELATED_SOURCE_LIMIT)) {
+  for (const sourcePath of files.map((f) => f.path).slice(0, RELATED_SOURCE_LIMIT)) {
     try {
       for (const n of neighbors(db, indexId, sourcePath, { types: ["imports", "imported_by", "tests", "calls", "references"], depth: relatedDepth })) {
         const key = `${sourcePath}\0${n.path}\0${n.edgeType}\0${n.hops}`;
@@ -138,14 +173,21 @@ export function ctxExplore(
     }
   }
 
+  related.sort((a, b) => a.hops - b.hops || b.confidence - a.confidence || a.sourcePath.localeCompare(b.sourcePath) || a.path.localeCompare(b.path));
+  const omittedRelated = Math.max(0, related.length - maxRelated);
   const out: ExploreResult = {
     indexId,
     query: search.query,
     count: search.count,
-    files: [...byFile.values()],
-    related,
+    files,
+    related: related.slice(0, maxRelated),
     freshness: search.freshness,
   };
+  const truncated: ExploreTruncated = {};
+  if (omittedFiles > 0) truncated.files = omittedFiles;
+  if (omittedResults > 0) truncated.results = omittedResults;
+  if (omittedRelated > 0) truncated.related = omittedRelated;
+  if (Object.keys(truncated).length > 0) out.truncated = truncated;
   if (search.pendingFiles !== undefined) out.pendingFiles = search.pendingFiles;
   if (search.nextCursor) out.nextCursor = search.nextCursor;
   return out;

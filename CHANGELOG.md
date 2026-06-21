@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Deterministic offline `npm run eval:agent` harness comparing CodeLens-style discovery with raw-scan proxy metrics.
+- Package metadata test to ensure README-linked docs are included in the npm package.
+- Claude slash commands for `cl_explore` and `cl_impact`.
+
+### Changed
+- `cl_explore` now supports payload caps (`maxFiles`, `maxResultsPerFile`, `maxRelated`), deterministic ordering, and additive `truncated` metadata.
+- `cl_impact` now includes additive `symbolId`, `summary`, provenance, and confidence labels for impact handles.
+- npm package `files` now includes README-linked docs (`how-it-works` and `usage-metrics`).
+
 ## [2.0.1] - 2026-06-20
 
 ### Added
