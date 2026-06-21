@@ -5,6 +5,8 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-06-21
+
 ### Added
 - Global `--cwd <path>` support for CLI/MCP startup so clients can attach CodeLens to the intended workspace even when launched from another directory.
 - Best-effort MCP Roots support for clients such as Cursor that provide workspace roots.
