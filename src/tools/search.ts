@@ -4,6 +4,7 @@ import { extractSnippet, headlineSnippet } from "../search/snippet.js";
 import { rank, normalize, type SignalScore } from "../search/rank.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
+import { getPendingPaths } from "../index/staleness.js";
 import { splitIdentifiers } from "../search/identifiers.js";
 import { queryTokens, quoteFtsTerm } from "../search/query.js";
 import type { GitScope } from "../git/scope.js";
@@ -23,6 +24,8 @@ export interface SearchHandle {
   score: number;
   why: string;
   preview: string;
+  /** True when this file is known stale and should be read from disk directly. */
+  stale?: boolean;
 }
 
 export interface SearchResult {
@@ -162,6 +165,11 @@ function prelude(db: Database.Database, opts?: { scope?: GitScope; refreshBudget
     const r = ensureFreshIndex(db, opts.scope, { budgetMs: opts?.refreshBudgetMs });
     if (r.pending > 0) { freshness = "partial"; pendingFiles = r.pending; }
   }
+  const indexId = getActiveIndexId();
+  if (indexId) {
+    const pending = getPendingPaths(indexId).size;
+    if (pending > 0) { freshness = "partial"; pendingFiles = pending; }
+  }
   return { freshness, pendingFiles };
 }
 
@@ -177,7 +185,11 @@ export function ctxSearch(
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   const offset = decodeCursor(opts?.cursor);
   const fts = ftsQuery(query);
-  if (fts.length === 0) return { indexId, query, count: 0, results: [], freshness: "fresh" };
+  if (fts.length === 0) {
+    const out: SearchResult = { indexId, query, count: 0, results: [], freshness };
+    if (pendingFiles !== undefined) out.pendingFiles = pendingFiles;
+    return out;
+  }
   const ftsRows = gatherFts(db, indexId, fts, limit * 4, opts?.contentType);
   const signals = buildSignals(db, indexId, query, ftsRows);
   const ranked = rank(signals);
@@ -211,10 +223,11 @@ export function ctxSearch(
       case "full": return extractSnippet(src.content, query, 1500);
     }
   };
+  const pendingPaths = getPendingPaths(indexId);
   const results: SearchHandle[] = page.map((r, i) => {
     const src = r.chunkId ? byChunk.get(r.chunkId) : undefined;
     const rankOffset = offset + i;
-    return {
+    const item: SearchHandle = {
       handle: r.chunkId ?? "",
       path: r.path,
       lines: `${r.startLine}-${r.endLine}`,
@@ -222,6 +235,8 @@ export function ctxSearch(
       why: r.why.join(","),
       preview: src ? renderPreview(src, rankOffset) : "",
     };
+    if (pendingPaths.has(r.path)) item.stale = true;
+    return item;
   });
   const nextCursor = hasMore && results.length > 0 ? encodeCursor(offset + results.length, results[results.length - 1]!.handle || `${offset}`) : null;
   const out: SearchResult = { indexId, query, count: results.length, results, freshness };

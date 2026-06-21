@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getActiveIndexId, getIndex } from "../index/manager.js";
+import { getPendingPaths } from "../index/staleness.js";
 
 /**
  * cl_map: outline / repo-map.
@@ -21,6 +22,8 @@ export interface MapSymbol {
 export interface MapFile {
   path: string;
   symbols: MapSymbol[];
+  /** True when this file is known stale and should be read from disk directly. */
+  stale?: boolean;
 }
 
 export interface MapResult {
@@ -28,6 +31,8 @@ export interface MapResult {
   files: MapFile[];
   fileCount: number;
   truncated: boolean;
+  freshness?: "fresh" | "partial";
+  pendingFiles?: number;
 }
 
 const DEFAULT_FILE_LIMIT = 50;
@@ -95,6 +100,13 @@ export function ctxMap(
   const distinctPaths = new Set(rows.map((r) => r.path));
   const truncated = distinctPaths.size > byFile.size;
 
-  const files: MapFile[] = [...byFile.entries()].map(([path, symbols]) => ({ path, symbols }));
-  return { indexId, files, fileCount: files.length, truncated };
+  const pendingPaths = getPendingPaths(indexId);
+  const files: MapFile[] = [...byFile.entries()].map(([path, symbols]) => {
+    const item: MapFile = { path, symbols };
+    if (pendingPaths.has(path)) item.stale = true;
+    return item;
+  });
+  const out: MapResult = { indexId, files, fileCount: files.length, truncated, freshness: pendingPaths.size > 0 ? "partial" : "fresh" };
+  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
+  return out;
 }

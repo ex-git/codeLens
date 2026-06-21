@@ -17,8 +17,8 @@ Cursor, Gemini CLI, opencode, Codex CLI) or directly from the terminal.
   leak across branches.
 - **Relations, not just text** — graph edges (imports / tests / callers / …)
   ranked alongside FTS5 + symbol-name matches.
-- **Fresh** — auto-refreshes changed files before query; `cl_expand` always
-  reads from disk.
+- **Fresh** — query tools auto-refresh changed files before answering, flag
+  budget-limited stale results, and `cl_expand` always reads from disk.
 - **Compact** — returns ranked handles; expand only what you need.
 - **Durable** — saved contexts live in a separate DB and survive index rebuilds.
 - **Self-cleaning** — automatic TTL prunes inactive indexes.
@@ -149,10 +149,12 @@ node build/src/server.js
 
 1. In your repo, the agent calls `cl_current` (builds index if missing) or
    `cl_refresh` explicitly.
-2. `cl_search(query: "session validation")` → ranked handles (signature-first previews; pass `snippet:"full"` for more).
-3. `cl_related(path: "src/auth/session.ts", types: ["tests"])` → tests/callers.
-4. `cl_map(path: "src/auth")` → per-file symbol outline for orientation.
-5. `cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58)` → exact code.
+2. `cl_explore(query: "session validation flow")` → grouped previews + relationship map in one call.
+3. `cl_search(query: "session validation")` → lean ranked handles when you only need locations.
+4. `cl_impact(symbol: "validateSession", path: "src/auth/session.ts")` → callers/callees/affected tests before edits.
+5. `cl_related(path: "src/auth/session.ts", types: ["tests"])` → targeted graph expansion.
+6. `cl_map(path: "src/auth")` → per-file symbol outline for orientation.
+7. `cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58)` → exact code.
 
 See [`docs/agent-guide.md`](docs/agent-guide.md) for a full walkthrough,
 [`docs/tools.md`](docs/tools.md) for the tool reference, and
@@ -192,7 +194,6 @@ npm run quality     # retrieval-quality fixture (recall@5/MRR/top-1/latency)
 
 - [How CodeLens works](docs/how-it-works.md) — architecture, index layers, branch isolation, freshness, ranking, TTL, saved contexts, usage.
 - [Usage metrics & how "saved" is calculated](docs/usage-metrics.md) — the formula, assumptions, and limits.
-- [CodeLens vs CodeGraph](docs/vs-codegraph.md) — feature comparison.
 
 ## Limitations
 

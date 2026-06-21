@@ -151,13 +151,15 @@ const ROUTING = `
 A local branch-scoped code index is available via these tools:
 - cl_current  — repo/branch/index status (call if unsure whether the index is ready)
 - cl_search   — ranked semantic+lexical search → compact handles (path + line range + score)
+- cl_explore  — one-call grouped search + previews + relationship map for broad orientation
 - cl_related  — graph neighbors of a file/symbol (imports/importers/tests/callers)
+- cl_impact   — callers/callees/affected files/tests before edits
 - cl_map      — per-file symbol outline (repo map) for quick orientation
 - cl_expand   — exact current file content by path/range (reads disk, never stale)
 
 Prefer cl_* for discovery when:
 - you don't know the exact name/string (semantic or conceptual search)
-- you need relationships (importers, tests, callers) or a quick outline
+- you need broad orientation, relationships (importers, tests, callers), blast radius, or a quick outline
 - the repo is large or unfamiliar, or you'd otherwise grep + read many files
 - branch-scoped correctness matters (results won't leak across branches)
 
@@ -166,6 +168,7 @@ Raw grep/find/read is fine (or better) when:
 - you're reading or editing a single known file
 - the repo is tiny or familiar
 
+If a result has stale:true or freshness:"partial", read that file directly before relying on indexed snippets/edges.
 Always use cl_expand or a raw read for the exact file you're about to edit.
 After \`git checkout\`, results auto-scope to the new branch; call cl_current to
 confirm. You do NOT need the user's permission to use these tools.`;
