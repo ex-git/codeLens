@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-06-21
+
+### Fixed
+- `codelens upgrade` now reports the freshly rebuilt version (was printing the pre-upgrade version, which looked like a one-version-at-a-time upgrade).
+
+### Changed
+- `codelens upgrade` now auto-refreshes global agent config + routing using the new build, and reminds Cursor users to run a per-workspace local install.
+
 ## [2.1.1] - 2026-06-21
 
 ### Added

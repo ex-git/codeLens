@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { VERSION } from "./version.js";
@@ -62,6 +63,33 @@ export async function checkUpgrade(): Promise<UpgradeStatus> {
 
 export interface UpgradeResult { ok: boolean; message: string }
 
+/** Read the version from the (freshly pulled/built) app package.json. */
+export function readRootVersion(root: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf-8")) as { version?: string };
+    if (pkg.version) return pkg.version;
+  } catch { /* ignore */ }
+  return VERSION;
+}
+
+/** Resolve a command that runs the freshly built CodeLens (launcher on PATH or node + built server.js). */
+function newBuildLauncher(root: string): { cmd: string; baseArgs: string[] } | null {
+  const onPath = join(homedir(), ".local", "bin", "codelens");
+  if (existsSync(onPath)) return { cmd: onPath, baseArgs: [] };
+  const serverJs = join(root, "build", "src", "server.js");
+  if (existsSync(serverJs)) return { cmd: process.execPath, baseArgs: [serverJs] };
+  return null;
+}
+
+/** Best-effort: refresh global agent config + routing using the NEW build. */
+function refreshAgentConfig(root: string): { ok: boolean; detail: string } {
+  const launcher = newBuildLauncher(root);
+  if (!launcher) return { ok: false, detail: "new build launcher not found" };
+  const r = spawnSync(launcher.cmd, [...launcher.baseArgs, "install", "--target", "auto", "--yes"], { cwd: root, encoding: "utf-8" });
+  if (r.status !== 0) return { ok: false, detail: (r.stderr ?? r.stdout ?? "").slice(-300) || "install failed" };
+  return { ok: true, detail: "refreshed global agent config + routing" };
+}
+
 export async function performUpgrade(_version?: string): Promise<UpgradeResult> {
   const root = appRoot();
   if (!root) return { ok: false, message: "could not locate the install dir; re-run the installer script." };
@@ -76,5 +104,13 @@ export async function performUpgrade(_version?: string): Promise<UpgradeResult> 
   const build = spawnSync("npm", ["run", "build"], { cwd: root, encoding: "utf-8" });
   if (build.status !== 0) return { ok: false, message: `npm run build failed: ${(build.stderr ?? build.stdout ?? "").slice(-500)}` };
 
-  return { ok: true, message: `upgraded to ${VERSION} (pulled origin/${branch}, rebuilt). Restart your agent(s) to pick up changes.` };
+  const newVersion = readRootVersion(root);
+  const refresh = refreshAgentConfig(root);
+  const refreshNote = refresh.ok
+    ? "Refreshed global agent config + routing."
+    : `Could not auto-refresh agent config (${refresh.detail}); run \`codelens install --target all --yes\`.`;
+  return {
+    ok: true,
+    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${refreshNote} Restart your agent(s). For Cursor per-workspace, run \`codelens install --target cursor --location local --yes\` from the repo root.`,
+  };
 }
