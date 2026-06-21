@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import Parser from "tree-sitter";
 import { extractSymbols } from "../src/graph/symbols.js";
-import { getParseFileCallCountForTesting, isSupported, loadGrammar, resetParseFileCallCountForTesting } from "../src/graph/grammars.js";
+import { isSupported, loadGrammar } from "../src/graph/grammars.js";
 import { openMemoryDb } from "../src/db/db.js";
 import { buildIndex } from "../src/index/indexer.js";
 import { detectScope, type GitScope } from "../src/git/scope.js";
@@ -73,9 +74,13 @@ describe("indexer symbol integration", () => {
 
   it("parses each eligible file once while populating symbols and edges", () => {
     const db = openMemoryDb();
-    resetParseFileCallCountForTesting();
-    buildIndex(db, scope!);
-    expect(getParseFileCallCountForTesting()).toBe(1);
-    db.close();
+    const parseSpy = vi.spyOn(Parser.prototype, "parse");
+    try {
+      buildIndex(db, scope!);
+      expect(parseSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      parseSpy.mockRestore();
+      db.close();
+    }
   });
 });

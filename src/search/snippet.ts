@@ -1,3 +1,5 @@
+import { queryTokens } from "./query.js";
+
 /**
  * Snippet + dedent helpers for agent-facing output.
  *
@@ -10,7 +12,7 @@
 const STOPWORDS = new Set(["the", "a", "an", "and", "or", "of", "to", "in", "for", "is", "on"]);
 
 function tokenize(query: string): string[] {
-  return query.toLowerCase().split(/[^a-z0-9_]+/i).filter((t) => t.length > 1 && !STOPWORDS.has(t));
+  return queryTokens(query.toLowerCase(), { minLength: 2, stopwords: STOPWORDS });
 }
 
 /** Strip the common leading whitespace from non-blank lines (Python-style dedent). */

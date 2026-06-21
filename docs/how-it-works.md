@@ -48,9 +48,9 @@ SQLite
    snippets or `cl_expand` content.
 3. **Symbols** (tree-sitter): functions/classes/methods/types/exports/imports
    with line ranges + signatures + exported flag. Parser-eligible files are
-   parsed once and the same tree-sitter tree is reused for symbols, edges, and
-   structure-aware chunking. 11 grammars shipped; unknown languages fall back to
-   text-only FTS.
+   parsed once and the same tree-sitter tree is reused for symbols and edges;
+   structure-aware chunking consumes those extracted symbol ranges. 11 grammars
+   shipped; unknown languages fall back to text-only FTS.
 4. **Source graph**: edges `imports`, `defines`, `belongs_to`, `exports`,
    `tests` (filename heuristics). Resolution handles TS ESM `.js`→`.ts`
    substitution. Unresolved imports emit no edge (no wrong edges).
