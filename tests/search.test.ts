@@ -4,9 +4,12 @@ import { buildIndex } from "../src/index/indexer.js";
 import { ctxSearch } from "../src/tools/search.js";
 import { ctxExpand } from "../src/tools/expand.js";
 import { ctxCurrent } from "../src/tools/current.js";
+import { ctxRefresh } from "../src/tools/refresh.js";
 import { splitIdentifiers } from "../src/search/identifiers.js";
 import { detectScope, type GitScope } from "../src/git/scope.js";
 import { getOrCreateIndex } from "../src/index/manager.js";
+import { computeIndexId } from "../src/index/identity.js";
+import { clearAutoIndexing, markAutoIndexing } from "../src/index/autoindex.js";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -221,6 +224,40 @@ describe("ctxCurrent", () => {
     expect(c.indexId).toBeTruthy();
     expect(c.status).toBe("active");
     db.close();
+  });
+
+
+  it("reports indexing while auto-index marker exists", () => {
+    const db = openMemoryDb();
+    const indexId = computeIndexId(scope!);
+    try {
+      markAutoIndexing(indexId, repo);
+      const c = ctxCurrent(db, repo);
+      expect(c.inGitRepo).toBe(true);
+      expect(c.status).toBe("indexing");
+      expect(c.indexId).toBeNull();
+      expect(c.indexingStartedAt).toEqual(expect.any(Number));
+      expect(c.indexingAgeMs).toEqual(expect.any(Number));
+    } finally {
+      clearAutoIndexing(indexId);
+      db.close();
+    }
+  });
+
+  it("cl_refresh reports indexing instead of duplicating an active auto-index", () => {
+    const db = openMemoryDb();
+    const indexId = computeIndexId(scope!);
+    try {
+      markAutoIndexing(indexId, repo);
+      const r = ctxRefresh(db, scope!);
+      expect(r.status).toBe("indexing");
+      expect(r.indexId).toBe(indexId);
+      expect(r.indexedFiles).toBe(0);
+      expect(r.indexingStartedAt).toEqual(expect.any(Number));
+    } finally {
+      clearAutoIndexing(indexId);
+      db.close();
+    }
   });
 
   it("reports missing outside git repo", () => {

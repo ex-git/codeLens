@@ -9,7 +9,8 @@ import { UsageTracker, openGlobalUsageDb, DISCOVERY_TOOLS, TRACKED_TOOLS, estima
 import { getActiveIndexId } from "./index/manager.js";
 import { scheduleAutoPrune } from "./index/autoprune.js";
 import { FileWatcher } from "./index/watcher.js";
-import { buildIndex } from "./index/indexer.js";
+import { activatePersistentIndexIfReady, hasPersistentIndex, normalizeAutoIndexMode, spawnAutoIndex } from "./index/autoindex.js";
+import { computeIndexId } from "./index/identity.js";
 import { cli } from "./cli.js";
 import { registerWatcher } from "./index/reindex.js";
 import { VERSION } from "./version.js";
@@ -103,25 +104,29 @@ export async function main(): Promise<void> {
   let rootsChecked = isUsableCwd(parsed.cwd);
   const serverRef: { current?: McpServer } = {};
   
-  let hasTriggeredAutoIndex = false;
+  const autoIndexMode = normalizeAutoIndexMode(parsed.autoIndex, "missing");
+  let autoIndexTriggeredFor: string | null = null;
 
-  async function checkAndTriggerAutoIndex() {
-    if (hasTriggeredAutoIndex || parsed.autoIndex === "never" || !ctx.repoRoot) return;
-    hasTriggeredAutoIndex = true;
-    
+  function activateReadyIndex(): void {
+    const scope = detectScope(ctx.repoRoot);
+    if (scope) activatePersistentIndexIfReady(ctx.coreDb, scope);
+  }
+
+  function checkAndTriggerAutoIndex(): void {
+    if (!rootsChecked || autoIndexMode === "never" || !ctx.repoRoot) return;
+
     const scope = detectScope(ctx.repoRoot);
     if (!scope) return;
-    
-    const isMissing = !getActiveIndexId();
-    if (parsed.autoIndex === "always" || (parsed.autoIndex === "missing" && isMissing)) {
-      // background index
-      setTimeout(() => {
-        try {
-          const s = detectScope(ctx.repoRoot);
-          if (s) buildIndex(ctx.coreDb, s);
-        } catch { /* background fail is fine */ }
-      }, 100);
-    }
+
+    const indexId = computeIndexId(scope);
+    if (autoIndexTriggeredFor === indexId) return;
+    activateReadyIndex();
+
+    const shouldIndex = autoIndexMode === "always" || (autoIndexMode === "missing" && !hasPersistentIndex(ctx.coreDb, scope));
+    if (!shouldIndex) return;
+
+    autoIndexTriggeredFor = indexId;
+    spawnAutoIndex(ctx.repoRoot, indexId);
   }
 
   async function switchRoot(repoRoot: string): Promise<void> {
@@ -140,22 +145,39 @@ export async function main(): Promise<void> {
     stopPrune = next.stopPrune;
   }
 
-  async function beforeTool(): Promise<void> {
-    if (!rootsChecked) {
-      rootsChecked = true;
-      if (serverRef.current) {
-        const root = await rootFromMcpRoots(serverRef.current);
-        if (root) await switchRoot(root);
-      }
-    }
-    // Now that root is finalized, trigger auto index if needed
+  async function tryResolveMcpRoots(): Promise<void> {
+    if (rootsChecked || !serverRef.current) return;
+    const capabilities = serverRef.current.server.getClientCapabilities();
+    if (!capabilities) return;
+    rootsChecked = true;
+    const root = await rootFromMcpRoots(serverRef.current);
+    if (root) await switchRoot(root);
+  }
+
+  async function settleRootAndTriggerAutoIndex(): Promise<void> {
+    await tryResolveMcpRoots();
+    activateReadyIndex();
     checkAndTriggerAutoIndex();
+  }
+
+  async function beforeTool(): Promise<void> {
+    await settleRootAndTriggerAutoIndex();
   }
 
   const server = createServer(ctx, beforeTool);
   serverRef.current = server;
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Explicit --cwd roots (Cursor's ${workspaceFolder}) are ready immediately;
+  // roots-only clients may need initialize to complete first, so retry briefly.
+  void (async () => {
+    for (let i = 0; i < 10; i++) {
+      await settleRootAndTriggerAutoIndex();
+      if (rootsChecked) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  })();
 }
 
 function openRuntime(repoRoot: string): { ctx: ServerContext; watcher: FileWatcher; stopPrune: () => void } {

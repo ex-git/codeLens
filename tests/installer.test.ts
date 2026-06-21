@@ -31,7 +31,7 @@ describe("installer: claude (JSON mcpServers)", () => {
     const r = runInstall({ serverCommand: CMD, location: "global", target: ["claude"], instructions: false });
     expect(r.configured.find((c) => c.host === "claude")?.wrote).toBe(true);
     const cfg = JSON.parse(readFileSync(join(fakeHome, ".claude.json"), "utf-8"));
-    expect(cfg.mcpServers["codelens"]).toEqual({ command: CMD, args: [] });
+    expect(cfg.mcpServers["codelens"]).toEqual({ command: CMD, args: ["--auto-index", "missing"] });
   });
   it("apply is idempotent (already=true, no rewrite)", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["claude"], instructions: false });
@@ -89,7 +89,7 @@ describe("installer: opencode (mcp object)", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["opencode"], instructions: false });
     const p = join(fakeHome, ".config", "opencode", "opencode.json");
     const cfg = JSON.parse(readFileSync(p, "utf-8"));
-    expect(cfg.mcp["codelens"]).toEqual({ type: "local", command: [CMD], enabled: true });
+    expect(cfg.mcp["codelens"]).toEqual({ type: "local", command: [CMD, "--auto-index", "missing"], enabled: true });
   });
 
   it("does not overwrite an invalid existing JSON config", () => {
@@ -153,14 +153,21 @@ describe("installer: cursor routing rule (.mdc)", () => {
   it("global config attaches via ${workspaceFolder}", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(fakeHome, ".cursor", "mcp.json"), "utf-8"));
-    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}", "--auto-index", "missing"] });
   });
 
   it("local config passes workspace cwd explicitly", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["cursor"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(process.cwd(), ".cursor", "mcp.json"), "utf-8"));
-    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}", "--auto-index", "missing"] });
     rmSync(join(process.cwd(), ".cursor"), { recursive: true, force: true });
+  });
+
+
+  it("can disable auto-index with --auto-index never", () => {
+    runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: false, autoIndex: "never" });
+    const cfg = JSON.parse(readFileSync(join(fakeHome, ".cursor", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
   });
 
   it("writes a dedicated codelens.mdc with frontmatter", () => {
@@ -246,19 +253,19 @@ describe("installer: local installs attach --cwd to the workspace", () => {
   it("claude local .mcp.json pins concrete workspace cwd", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["claude"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(ws, ".mcp.json"), "utf-8"));
-    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", process.cwd()] });
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", process.cwd(), "--auto-index", "missing"] });
   });
 
   it("gemini local settings.json pins concrete workspace cwd", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["gemini"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(ws, ".gemini", "settings.json"), "utf-8"));
-    expect(cfg.mcpServers.codelens.args).toEqual(["--cwd", process.cwd()]);
+    expect(cfg.mcpServers.codelens.args).toEqual(["--cwd", process.cwd(), "--auto-index", "missing"]);
   });
 
   it("opencode local command array includes --cwd", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["opencode"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(ws, "opencode.json"), "utf-8"));
-    expect(cfg.mcp.codelens.command).toEqual([CMD, "--cwd", process.cwd()]);
+    expect(cfg.mcp.codelens.command).toEqual([CMD, "--cwd", process.cwd(), "--auto-index", "missing"]);
   });
 
   it("codex local toml args include --cwd", () => {
@@ -266,12 +273,13 @@ describe("installer: local installs attach --cwd to the workspace", () => {
     const content = readFileSync(join(ws, ".codex", "config.toml"), "utf-8");
     expect(content).toContain(`args = ["--cwd",`);
     expect(content).toContain(process.cwd());
+    expect(content).toContain(`"--auto-index","missing"`);
   });
 
   it("cursor local uses the ${workspaceFolder} variable", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["cursor"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(ws, ".cursor", "mcp.json"), "utf-8"));
-    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}", "--auto-index", "missing"] });
   });
 
   it("global installs keep empty args (rely on MCP Roots)", () => {
@@ -281,7 +289,7 @@ describe("installer: local installs attach --cwd to the workspace", () => {
     try {
       runInstall({ serverCommand: CMD, location: "global", target: ["gemini"], instructions: false });
       const cfg = JSON.parse(readFileSync(join(fakeHome2, ".gemini", "settings.json"), "utf-8"));
-      expect(cfg.mcpServers.codelens.args).toEqual([]);
+      expect(cfg.mcpServers.codelens.args).toEqual(["--auto-index", "missing"]);
     } finally {
       if (origHome2 === undefined) delete process.env.HOME; else process.env.HOME = origHome2;
       rmSync(fakeHome2, { recursive: true, force: true });

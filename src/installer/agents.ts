@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from "node
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { VERSION } from "../version.js";
+import { type AutoIndexMode, normalizeAutoIndexMode } from "../index/autoindex.js";
 
 /**
  * Agent/IDE wiring (installs the CodeLens MCP server config into each
@@ -31,11 +32,11 @@ export type TargetSpec = "auto" | "all" | "none" | string[];
  * it at any location for a one-shot attach. Other hosts have no portable
  * workspace variable: local installs pin the concrete workspace root (the dir
  * the local config is written into = process.cwd() at install time), while
- * global installs return [] and rely on MCP Roots (a single global config must
- * not pin one repo).
+ * global installs rely on MCP Roots for the workspace and still include
+ * `--auto-index missing` by default.
  */
-function workspaceCwdArgs(hostId: string, loc?: Location, autoIndex?: string): string[] {
-  const args = [];
+function workspaceCwdArgs(hostId: string, loc?: Location, autoIndex?: AutoIndexMode): string[] {
+  const args: string[] = [];
   if (hostId === "cursor") args.push("--cwd", "${workspaceFolder}");
   else if (loc === "local") args.push("--cwd", process.cwd());
   if (autoIndex && autoIndex !== "never") args.push("--auto-index", autoIndex);
@@ -56,9 +57,9 @@ export interface HostAdapter {
   /** True if the host appears installed (config dir / app present). */
   detect(): boolean;
   /** Build the MCP server entry value to store. */
-  buildEntry(serverCommand: string, loc?: Location, autoIndex?: string): unknown;
+  buildEntry(serverCommand: string, loc?: Location, autoIndex?: AutoIndexMode): unknown;
   /** Apply the entry to the host config (idempotent). Returns write info. */
-  apply(serverCommand: string, loc: Location, autoIndex?: string): ApplyResult;
+  apply(serverCommand: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult;
   /** Remove our entry from the host config. */
   remove(loc: Location): ApplyResult;
   /** Config key/section name we own (for removal). */
@@ -99,6 +100,7 @@ Raw \`grep\`/\`find\`/\`read\` is fine when:
 If a result has \`stale:true\` or \`freshness:"partial"\`, read that file directly before relying on indexed snippets/edges.
 If \`cl_current.inGitRepo\` is false or the repo path is not this workspace, CodeLens isn't attached: tell the user to restart the IDE after upgrading (the global Cursor config attaches via \`\${workspaceFolder}\`), or run \`codelens install --target cursor --yes\`; do not silently fall back to raw find/grep.
 Always use \`cl_expand\` or a raw read for the exact file you're about to edit.
+If \`cl_current.status === "indexing"\`, wait/retry shortly; use \`indexingStartedAt\`/\`indexingAgeMs\` to decide if it looks stuck. Call \`cl_refresh\` when status remains \`missing\`, freshness is partial/stale and relationships matter, or the user asks for a rebuild. \`cl_refresh\` itself returns \`status:"indexing"\` instead of duplicating an active background index.
 Results are scoped to the current branch; call \`cl_current\` after a
 \`git checkout\`. See \`docs/routing.md\`. Remove with: \`codelens uninstall\`.`;
 
@@ -231,10 +233,10 @@ class ClaudeCodeTarget implements HostAdapter {
   detect(): boolean {
     return existsSync(join(homedir(), ".claude.json")) || existsSync(join(homedir(), ".claude"));
   }
-  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown {
+  buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown {
     return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) };
   }
-  apply(cmd: string, loc: Location, autoIndex?: string): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
+  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
   remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
   commandsDir(loc: Location): string {
     return loc === "global" ? join(homedir(), ".claude", "commands") : join(process.cwd(), ".claude", "commands");
@@ -273,8 +275,8 @@ alwaysApply: true
 ` + INSTRUCTIONS_BODY;
   }
   detect(): boolean { return existsSync(join(homedir(), ".cursor")); }
-  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
-  apply(cmd: string, loc: Location): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc)); }
+  buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
+  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
   remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
 }
 
@@ -289,8 +291,8 @@ class GeminiTarget implements HostAdapter {
     return loc === "global" ? join(homedir(), ".gemini", "GEMINI.md") : join(process.cwd(), "GEMINI.md");
   }
   detect(): boolean { return existsSync(join(homedir(), ".gemini")); }
-  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
-  apply(cmd: string, loc: Location): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc)); }
+  buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
+  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
   remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
 }
 
@@ -306,15 +308,15 @@ class OpencodeTarget implements HostAdapter {
     return loc === "global" ? join(homedir(), ".config", "opencode", "AGENTS.md") : join(process.cwd(), "AGENTS.md");
   }
   detect(): boolean { return existsSync(join(homedir(), ".config", "opencode")) || existsSync(join(process.cwd(), "opencode.json")); }
-  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown {
+  buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown {
     return { type: "local", command: [cmd, ...workspaceCwdArgs(this.id, loc, autoIndex)], enabled: true };
   }
-  apply(cmd: string, loc: Location): ApplyResult {
+  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult {
     // opencode uses a "mcp" object whose values are {type, command, enabled}.
     const path = this.configPath(loc);
     const cfg = existsSync(path) ? readJson(path) : {};
     const mcp = (cfg["mcp"] ?? {}) as Record<string, unknown>;
-    const entry = this.buildEntry(cmd, loc);
+    const entry = this.buildEntry(cmd, loc, autoIndex);
     if (deepEqualJson(mcp[this.entryKey], entry)) return { wrote: false, path, already: true };
     mcp[this.entryKey] = entry;
     cfg["mcp"] = mcp;
@@ -348,16 +350,16 @@ class CodexTarget implements HostAdapter {
   }
   detect(): boolean { return existsSync(join(homedir(), ".codex")); }
   buildEntry(_cmd: string): unknown { return null; } // TOML; use tomlBlock()
-  tomlBlock(cmd: string, loc?: Location, autoIndex?: string): string {
+  tomlBlock(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): string {
     const args = workspaceCwdArgs(this.id, loc, autoIndex);
     return `${CODEX_START}\n[mcp_servers.codelens]\ncommand = "${cmd.replace(/"/g, '\\"')}"\nargs = ${JSON.stringify(args)}\n${CODEX_END}`;
   }
-  apply(cmd: string, loc: Location): ApplyResult {
+  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult {
     const path = this.configPath(loc);
     mkdirSync(dirname(path), { recursive: true });
     let existing = "";
     try { existing = readFileSync(path, "utf-8"); } catch { /* none */ }
-    const block = this.tomlBlock(cmd, loc);
+    const block = this.tomlBlock(cmd, loc, autoIndex);
     const startIdx = existing.indexOf(CODEX_START);
     if (startIdx >= 0) {
       const endIdx = existing.indexOf(CODEX_END, startIdx);
@@ -443,12 +445,13 @@ export function writeServerPath(serverCommand: string): void {
 
 export function runInstall(opts: InstallOptions): InstallReport {
   writeServerPath(opts.serverCommand);
+  const autoIndex = normalizeAutoIndexMode(opts.autoIndex, "missing");
   const report: InstallReport = { configured: [], instructions: [], commands: [], skipped: [], serverCommand: opts.serverCommand };
   const targets = resolveTargets(opts.target);
   for (const h of HOSTS) {
     if (!targets.includes(h.id)) continue;
     if (h.id === "pi" || h.configPath(opts.location) === null) { report.skipped.push(`${h.id} (print-config only)`); continue; }
-    const r = h.apply(opts.serverCommand, opts.location);
+    const r = h.apply(opts.serverCommand, opts.location, autoIndex);
     report.configured.push({ host: h.id, path: r.path, wrote: r.wrote, already: r.already });
     if (opts.instructions !== false) {
       const ip = h.instructionsPath(opts.location);
@@ -511,14 +514,14 @@ function resolveTargets(target: TargetSpec): string[] {
 }
 
 /** Print the MCP config snippet for a host (no file writes). */
-export function printConfig(hostId: string, serverCommand: string, loc: Location = "global"): string | null {
+export function printConfig(hostId: string, serverCommand: string, loc: Location = "global", autoIndex: AutoIndexMode = "missing"): string | null {
   const h = getHost(hostId);
   if (!h) return null;
-  if (h.id === "codex") return (h as unknown as CodexTarget).tomlBlock(serverCommand, loc);
+  if (h.id === "codex") return (h as unknown as CodexTarget).tomlBlock(serverCommand, loc, autoIndex);
   if (h.id === "pi") {
     return `# Pi supports MCP via a TS extension bridge. Add an MCP extension manifest\n# (see adapters/pi/extension.json) pointing at: ${serverCommand}`;
   }
-  const entry = h.buildEntry(serverCommand, loc);
+  const entry = h.buildEntry(serverCommand, loc, autoIndex);
   const key = h.id === "opencode" ? "mcp" : "mcpServers";
   const cfg = { [key]: { [h.entryKey]: entry } };
   return `${h.configPath(loc)}:\n${JSON.stringify(cfg, null, 2)}`;

@@ -79,7 +79,7 @@ describe("cli", () => {
       expect(existsSync(join(repo, "opencode.json"))).toBe(true);
       expect(existsSync(join(fakeHome, ".config", "opencode", "opencode.json"))).toBe(false);
       const cfg = JSON.parse(readFileSync(join(repo, "opencode.json"), "utf-8"));
-      expect(cfg.mcp.codelens.command).toEqual(["/tmp/codelens", "--cwd", process.cwd()]);
+      expect(cfg.mcp.codelens.command).toEqual(["/tmp/codelens", "--cwd", process.cwd(), "--auto-index", "missing"]);
     } finally {
       rmSync(join(repo, "opencode.json"), { force: true });
       rmSync(join(repo, "AGENTS.md"), { force: true });
@@ -88,4 +88,20 @@ describe("cli", () => {
       else process.env.HOME = origHome;
     }
   });
+
+  it("install can disable auto-index", async () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "ce-cli-home-noauto-"));
+    process.env.HOME = fakeHome;
+    try {
+      const code = await cli(["install", "--target=cursor", "--command", "/tmp/codelens", "--auto-index", "never", "--yes"]);
+      expect(code).toBe(0);
+      const cfg = JSON.parse(readFileSync(join(fakeHome, ".cursor", "mcp.json"), "utf-8"));
+      expect(cfg.mcpServers.codelens.args).toEqual(["--cwd", "${workspaceFolder}"]);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+      if (origHome === undefined) delete process.env.HOME;
+      else process.env.HOME = origHome;
+    }
+  });
+
 });

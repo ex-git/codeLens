@@ -17,6 +17,8 @@ import { detectScope } from "../git/scope.js";
 import { getOrCreateIndex, getActiveIndexId } from "../index/manager.js";
 import { buildIndex } from "../index/indexer.js";
 import { ensureFreshIndex } from "../index/reindex.js";
+import { activatePersistentIndexIfReady, getAutoIndexStatus } from "../index/autoindex.js";
+import { computeIndexId } from "../index/identity.js";
 
 /**
  * Tool registry (Step 24).
@@ -47,10 +49,17 @@ function withScope(ctx: ServerContext) {
 function ensureActive(ctx: ServerContext): string {
   const scope = withScope(ctx);
   if (!scope) throw new Error("not inside a git repo (or plain dir support not enabled)");
-  // Build the first index eagerly, then use budget-bounded reconciliation on
-  // subsequent query tools so out-of-band edits are not silently missed.
+  // Activate a completed background auto-index if one exists. If auto-index is
+  // still running, do not duplicate a blocking foreground build; ask the agent to
+  // retry shortly or call cl_current for progress.
   if (!getActiveIndexId()) {
-    buildIndex(ctx.coreDb, scope);
+    const activated = activatePersistentIndexIfReady(ctx.coreDb, scope);
+    if (!activated) {
+      const indexId = computeIndexId(scope);
+      const indexing = getAutoIndexStatus(indexId);
+      if (indexing) throw new Error(`indexing in progress since ${new Date(indexing.startedAt).toISOString()} (${Math.round(indexing.ageMs / 1000)}s ago); retry shortly or call cl_current`);
+      buildIndex(ctx.coreDb, scope);
+    }
   } else {
     getOrCreateIndex(ctx.coreDb, scope);
     ensureFreshIndex(ctx.coreDb, scope);
@@ -62,14 +71,14 @@ export const TOOLS: ToolDef[] = [
   {
     name: "cl_current",
     description:
-      "Report current repo/branch/index status with freshness fields. Use first to check if an index is ready.\n\nRETURNS: {repo, branch, headSha, indexId, status, dirtyFiles, lastIndexedAt, inGitRepo}\n\nEXAMPLE: cl_current",
+      "Report current repo/branch/index status with freshness fields. Use first to check if an index is ready. If status is indexing, wait/retry shortly instead of refreshing immediately.\n\nRETURNS: {repo, branch, headSha, indexId, status, dirtyFiles, lastIndexedAt, indexingStartedAt?, indexingAgeMs?, inGitRepo}\n\nEXAMPLE: cl_current",
     schema: {},
     handler: (ctx) => ctxCurrent(ctx.coreDb, ctx.repoRoot),
   },
   {
     name: "cl_refresh",
     description:
-      "Create or update the current branch/worktree index. Scans files, indexes FTS, extracts symbols, builds graph.\n\nRETURNS: {indexId, branch, indexedFiles, totalChunks, skipped, status}\n\nEXAMPLE: cl_refresh",
+      "Create or update the current branch/worktree index. Scans files, indexes FTS, extracts symbols, builds graph. If background auto-index is already running, returns status:indexing instead of duplicating work.\n\nRETURNS: {indexId, branch, indexedFiles, totalChunks, skipped, status, indexingStartedAt?, indexingAgeMs?}\n\nEXAMPLE: cl_refresh",
     schema: {},
     handler: (ctx) => {
       const scope = withScope(ctx);

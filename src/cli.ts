@@ -6,6 +6,7 @@ import { openDb } from "./db/db.js";
 import { openContextDb } from "./context/store.js";
 import { detectScope } from "./git/scope.js";
 import { buildIndex } from "./index/indexer.js";
+import { clearAutoIndexing } from "./index/autoindex.js";
 import { getActiveIndexId } from "./index/manager.js";
 import { ctxSearch } from "./tools/search.js";
 import { ctxRelated } from "./tools/related.js";
@@ -81,7 +82,8 @@ export async function cli(args: string[]): Promise<number> {
     return 0;
   }
   if (cmd === "install") {
-    const { target, location, yes, command, autoIndex } = parseInstallArgs(args.slice(1));
+    const { target, location, yes, command, autoIndex: installAutoIndex } = parseInstallArgs(args.slice(1));
+    const autoIndex = installAutoIndex ?? parsed.autoIndex;
     const serverCommand = command ?? defaultServerCommand();
     if (!serverCommand) { console.error("could not determine the server executable. Run install.sh first, or pass --command <path-to-launcher>."); return 1; }
     const report = runInstall({ serverCommand, location, target, yes, instructions: true, autoIndex });
@@ -128,8 +130,12 @@ export async function cli(args: string[]): Promise<number> {
       case "refresh": {
         const scope = detectScope(repoRoot);
         if (!scope) { console.error("not inside a git repo"); return 1; }
-        const r = buildIndex(coreDb, scope);
-        console.log(JSON.stringify(r, null, 2));
+        try {
+          const r = buildIndex(coreDb, scope);
+          console.log(JSON.stringify(r, null, 2));
+        } finally {
+          if (process.env.CODELENS_AUTO_INDEX_ID) clearAutoIndexing(process.env.CODELENS_AUTO_INDEX_ID);
+        }
         break;
       }
       case "search": {
