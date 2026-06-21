@@ -21,7 +21,7 @@ import { ensureFreshIndex } from "../index/reindex.js";
 /**
  * Tool registry (Step 24).
  *
- * Central source of truth for the 10 MCP tools: name, zod input schema,
+ * Central source of truth for MCP tools: name, zod input schema,
  * description (WHEN/RETURNS/EXAMPLE), and handler. The handlers receive a
  * ServerContext (core db, contexts db, repoRoot) and the parsed args.
  */

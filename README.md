@@ -23,10 +23,10 @@ Cursor, Gemini CLI, opencode, Codex CLI) or directly from the terminal.
 - **Durable** — saved contexts live in a separate DB and survive index rebuilds.
 - **Self-cleaning** — automatic TTL prunes inactive indexes.
 
-## Install (one command)
+## Install
 
-The installer builds the tool, puts `codelens` on your PATH, and wires the
-MCP server into your agents/IDEs automatically (Claude Code, Cursor, Gemini CLI,
+One command builds the tool, installs the `codelens` launcher, and wires the MCP
+server into detected agents/IDEs automatically (Claude Code, Cursor, Gemini CLI,
 opencode, Codex CLI). Requires Node.js ≥ 22.5.
 
 **macOS / Linux:**
@@ -39,9 +39,9 @@ curl -fsSL https://raw.githubusercontent.com/ex-git/codeLens/main/install.sh | s
 irm https://raw.githubusercontent.com/ex-git/codeLens/main/install.ps1 | iex
 ```
 
-Then open a new terminal (so PATH picks up) and the agents you use are configured.
-The installer wires the MCP server into every detected agent; to choose
-explicitly or re-run later:
+After it finishes, open a new terminal so your shell picks up the newly installed
+`codelens` command. The agents detected during install are already configured;
+to choose targets explicitly or re-run later:
 
 ```bash
 codelens install --target all --yes        # wire all agents
@@ -207,8 +207,9 @@ npm run quality     # retrieval-quality fixture (recall@5/MRR/top-1/latency)
   incremental + the file watcher thereafter (cold index ~3.5s for 2000 files).
 - **Routing hooks are advisory** (soft nudges, not hard blocks) per the no-
   throttling design decision — raw reads remain allowed for editing/verification.
-- **npm package** — published automatically from `v*` git tags via the
-  `publish` workflow; `npx -y @fodx/codelens` works once a tag is pushed. See
+- **npm package** — published on npm as `@fodx/codelens`; releases are
+  published automatically from `v*` git tags via the `publish` workflow. Use
+  `npx -y @fodx/codelens` for manual MCP configuration. See
   `.github/workflows/publish.yml`.
 - **Windows not tested** — path normalization handles backslashes, but `fs.watch`
   recursive behavior and native builds are unverified on Windows.

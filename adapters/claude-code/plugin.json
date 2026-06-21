@@ -1,7 +1,7 @@
 {
   "name": "codelens",
   "version": "1.0.0",
-  "description": "Branch-aware code search & relation graph. Routes agents to cl_search/cl_related/cl_expand instead of raw grep/read.",
+  "description": "Branch-aware code search & relation graph. Routes agents to cl_explore/cl_search/cl_related/cl_impact/cl_expand instead of raw grep/read.",
   "tools": ["*"],
   "hooks": {
     "preToolUse": [

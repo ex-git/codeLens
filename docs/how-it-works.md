@@ -70,7 +70,7 @@ leak into `feature-b`. `cl_current` reports which index is active.
 
 ## Freshness (local files are source of truth)
 
-Before each `cl_search`, `ensureFreshIndex` runs:
+Before query tools answer (`cl_search`, `cl_explore`, `cl_related`, `cl_impact`, `cl_map`), `ensureFreshIndex` runs:
 1. Detect current git scope → activate/create the branch index.
 2. Scan files, diff `mtime`+`size` vs indexed rows (fast); hash only
    changed/suspicious files.
@@ -85,9 +85,10 @@ Before each `cl_search`, `ensureFreshIndex` runs:
 watcher (server mode) short-circuits the scan when nothing changed, with a 5s
 periodic full-scan backstop.
 
-**Edit behavior:** when the agent edits a file, the *next* `cl_search`
-auto-refreshes and reindexes it (lazy, not eager at edit time). Demonstrated:
-inject a new symbol → next search finds it.
+**Edit behavior:** when the agent edits a file, the *next query tool call*
+auto-refreshes and reindexes it (lazy, not eager at edit time). If the refresh
+budget is exhausted, known-stale paths are surfaced with `stale:true` and
+`freshness:"partial"` so the agent can read those files directly.
 
 ## Ranking (hybrid)
 
@@ -142,7 +143,7 @@ Pin to prevent TTL deletion.
 
 Global (`~/.codelens/usage.db`): per-tool calls, bytes served, and an estimated
 context saving computed from **actual indexed file sizes** of the result files.
-Only `cl_search`/`cl_related` accrue savings. See
+Discovery tools (`cl_search`, `cl_explore`, `cl_related`, `cl_impact`) accrue savings. See
 [`docs/usage-metrics.md`](usage-metrics.md).
 
 ## Distribution

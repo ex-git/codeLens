@@ -13,7 +13,9 @@ find/read/save code:
 | Tool | tracked | calls | bytes_served | bytes_saved |
 |------|---------|-------|--------------|-------------|
 | `cl_search` | ✅ | ✅ | ✅ | ✅ (discovery) |
+| `cl_explore` | ✅ | ✅ | ✅ | ✅ (discovery) |
 | `cl_related` | ✅ | ✅ | ✅ | ✅ (discovery) |
+| `cl_impact` | ✅ | ✅ | ✅ | ✅ (discovery) |
 | `cl_expand` | ✅ | ✅ | ✅ | 0 (it *is* the scoped read step) |
 | `cl_save` / `cl_load` | ✅ | ✅ | ✅ | 0 (context management) |
 
@@ -22,8 +24,8 @@ find/read/save code:
 `cl_usage`. So `cl_refresh` (building the index) does not appear in the usage
 report, and checking `cl_usage` never inflates the numbers.
 
-Only the **discovery** tools (`cl_search`, `cl_related`) accrue `bytes_saved` —
-the ones that replace "grep + read a bunch of files" with compact handles.
+Only the **discovery** tools (`cl_search`, `cl_explore`, `cl_related`, `cl_impact`) accrue `bytes_saved` —
+the ones that replace "grep + read a bunch of files" with compact indexed context.
 
 ## The formula (refined — actual file sizes)
 
@@ -34,8 +36,9 @@ files in the results**, which it already indexes (`files.size`):
 saved = max(0, Σ(distinct result files' indexed sizes) − bytesServed)
 ```
 
-- `distinct result files` = the unique paths among the returned handles
-  (`cl_search`/`cl_related` results carry `path`).
+- `distinct result files` = the unique paths among the returned handles/files
+  (`cl_search`/`cl_related` carry `results[].path`; `cl_explore` carries
+  `files[].path`; `cl_impact` carries paths in target/candidates/callers/callees/affected lists).
 - `indexed sizes` = `files.size` for those paths in the current branch index.
 - `bytesServed` = bytes of the JSON actually sent to the model.
 - **Capped at 50 distinct files** so a `cl_related` result returning 100
@@ -71,7 +74,7 @@ fallback.
    into context, which would make the real saving *larger*.
 4. **No multi-round exploration.** It counts one call, not the exploration
    rounds the agent avoids.
-5. The 50-file cap is a judgment call to curb `cl_related` inflation.
+5. The 50-file cap is a judgment call to curb broad relationship/impact results.
 
 Net: treat `saved(est)` as an order-of-magnitude indicator of how much context
 the index tools are sparing, not an audited figure.

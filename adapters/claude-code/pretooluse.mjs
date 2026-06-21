@@ -15,7 +15,7 @@ try {
   const evt = JSON.parse(raw);
   const tool = evt?.tool_name ?? evt?.toolName;
   const input = evt?.tool_input ?? evt?.toolInput ?? {};
-  // Heuristic: a grep/read over many files or a huge path set → suggest cl_search.
+  // Heuristic: a grep/read over many files or a huge path set → suggest CodeLens discovery tools.
   const isDiscovery =
     tool === "Grep" ||
     (tool === "Read" && Array.isArray(input?.file_paths) && input.file_paths.length > 3) ||
@@ -24,8 +24,8 @@ try {
     // additionalContext is surfaced to the model in Claude Code.
     console.log(JSON.stringify({
       additionalContext:
-        "Tip: for code discovery prefer codelens tools (cl_search → cl_related → cl_expand) " +
-        "to keep context lean. Raw grep/read are still fine for exact edits/verification.",
+        "Tip: for code discovery prefer codelens tools (cl_explore/cl_search → cl_related/cl_impact → cl_expand) " +
+        "to keep context lean. Raw grep/read are still fine for exact edits/verification; read stale:true files directly.",
     }));
   }
 } catch { /* never break the agent on a hook error */ }
