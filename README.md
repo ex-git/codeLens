@@ -196,11 +196,14 @@ npm run quality     # retrieval-quality fixture (recall@5/MRR/top-1/latency)
 
 ## Limitations
 
-- **No semantic/vector search** — the ONNX subsystem was removed; ranking is
-  FTS5 + symbol-name + graph proximity. (A real tokenizer can be re-added later.)
+- **No vector/semantic search** — there is no embedding model; ranking fuses
+  FTS5 BM25 + symbol-name + graph proximity + path + code/prose + exact-match
+  signals. Code identifiers are matched via bounded subtoken expansion
+  (e.g. `session` finds `validateSession`); a true semantic/vector layer is
+  still out of scope.
 - **Lazy on-demand indexing for very large repos** is future work — `cl_refresh`
   is eager. The recommended pattern for large repos is one `cl_refresh` then
-  incremental + the file watcher thereafter (cold index ~1.6s for 2000 files).
+  incremental + the file watcher thereafter (cold index ~3.5s for 2000 files).
 - **Routing hooks are advisory** (soft nudges, not hard blocks) per the no-
   throttling design decision — raw reads remain allowed for editing/verification.
 - **npm package** — published automatically from `v*` git tags via the

@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-06-20
+
+### Fixed
+- Docs: corrected README Limitations — cold index for 2000 files is ~3.5s (was
+  a stale ~1.6s), the ranking signal list now includes path/code/exact, and the
+  identifier-aware subtoken matching is documented (no vector/semantic layer).
+
 ## [2.0.0] - 2026-06-20
 
 ### Breaking
