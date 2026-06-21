@@ -46,6 +46,7 @@ to choose targets explicitly or re-run later:
 ```bash
 codelens install --target all --yes        # wire all agents
 codelens install --target claude,cursor    # wire specific agents
+codelens install --target cursor --location=local --yes  # reliable Cursor workspace attach
 codelens install --target auto --location=local   # project-local config
 codelens --print-config codex              # print a snippet, no writes
 codelens uninstall                         # remove from all agents
@@ -76,14 +77,19 @@ instead. All writes are idempotent and removable with `codelens uninstall`.
 | Host | target id | Config file (global → local) | Entry shape |
 |---|---|---|---|
 | Claude Code | `claude` | `~/.claude.json` → `.mcp.json` | `mcpServers.codelens = { command, args: [] }` |
-| Cursor | `cursor` | `~/.cursor/mcp.json` → `.cursor/mcp.json` | `mcpServers.codelens = { command, args: [] }` |
+| Cursor | `cursor` | `~/.cursor/mcp.json` → `.cursor/mcp.json` | global uses MCP Roots; local uses `mcpServers.codelens = { command, args: ["--cwd", "${workspaceFolder}"] }` |
 | Gemini CLI | `gemini` | `~/.gemini/settings.json` → `.gemini/settings.json` | `mcpServers.codelens = { command, args: [] }` |
 | opencode | `opencode` | `~/.config/opencode/opencode.json` → `./opencode.json` | `mcp.codelens = { type: "local", command: [cmd], enabled: true }` |
 | Codex CLI | `codex` | `~/.codex/config.toml` → `.codex/config.toml` | TOML `[mcp_servers.codelens]` block (`command`, `args = []`) |
 | Pi Coding Agent | `pi` | `pi install npm:@fodx/codelens` (loads `adapters/pi/codelens.extension.ts`) | Pi extension that bridges the MCP server via `pi.registerTool` |
 
 `command` is the absolute path to the installed `codelens` launcher (written by
-the installer); for a manual snippet use `npx -y @fodx/codelens`.
+the installer); for a manual snippet use `npx -y @fodx/codelens`. CodeLens uses
+root priority `--cwd` → MCP Roots → process cwd. **Project-local installs**
+(`--location=local`) attach the server to the workspace: Cursor uses
+`--cwd ${workspaceFolder}`, and other hosts pin the concrete workspace path.
+**Global installs** keep empty args and rely on MCP Roots, so prefer local
+install for any client that doesn't send Roots.
 
 **Routing instructions** are also written so the host prefers codelens tools for
 discovery over raw grep/read:

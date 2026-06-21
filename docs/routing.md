@@ -25,6 +25,12 @@ reads from disk — never stale), and `cl_save`/`cl_load` to persist working
 context across compaction. If a query result has `stale:true`, read that file
 from disk before relying on indexed snippets/edges.
 
+If `cl_current.inGitRepo` is false or `repo` points outside the current
+workspace, CodeLens is not attached to this workspace. Report the setup issue and
+ask the user to run `codelens install --target cursor --location local --yes`
+from the workspace root (or restart the MCP server after roots attach). Do not
+silently fall back to raw `find`/`grep` for discovery.
+
 ## When raw grep/find/read is fine (or better)
 
 - you already know an exact string/symbol/path
@@ -42,7 +48,9 @@ you're looking for.
 Results are scoped to the **current branch/worktree index only** by default.
 After `git checkout`, results will not leak from the old branch. If you switch
 branches mid-task, call `cl_current` again; the tool activates/creates the new
-branch's index automatically.
+branch's index automatically. MCP clients that provide Roots let CodeLens attach
+to the active workspace even from a global MCP config; otherwise use `--cwd` or
+project-local MCP config.
 
 ## Freshness
 

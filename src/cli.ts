@@ -16,6 +16,7 @@ import { scheduleAutoPrune } from "./index/autoprune.js";
 import { runInstall, runUninstall, printConfig, HOSTS, type Location } from "./installer/agents.js";
 import { VERSION } from "./version.js";
 import { checkUpgrade, performUpgrade } from "./upgrade.js";
+import { parseCwdArg, resolveCwd } from "./runtime/root.js";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -57,10 +58,12 @@ function ensureActiveIndex(coreDb: ReturnType<typeof openDb>, repoRoot: string):
 }
 
 export async function cli(args: string[]): Promise<number> {
+  const parsed = parseCwdArg(args);
+  args = parsed.args;
   const cmd = args[0];
-  const repoRoot = process.cwd();
+  const repoRoot = resolveCwd(parsed.cwd);
   if (!cmd || cmd === "--help" || cmd === "-h") {
-    console.log("codelens [current|index|search <q>|related <path>|stats|doctor|install|uninstall|upgrade|version]");
+    console.log("codelens [--cwd <path>] [current|index|search <q>|related <path>|stats|doctor|install|uninstall|upgrade|version]");
     return 0;
   }
   // ── DB-free commands (no repo/index needed) ──────────────────
