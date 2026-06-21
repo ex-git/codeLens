@@ -79,7 +79,7 @@ describe("cli", () => {
       expect(existsSync(join(repo, "opencode.json"))).toBe(true);
       expect(existsSync(join(fakeHome, ".config", "opencode", "opencode.json"))).toBe(false);
       const cfg = JSON.parse(readFileSync(join(repo, "opencode.json"), "utf-8"));
-      expect(cfg.mcp.codelens.command).toEqual(["/tmp/codelens"]);
+      expect(cfg.mcp.codelens.command).toEqual(["/tmp/codelens", "--cwd", process.cwd()]);
     } finally {
       rmSync(join(repo, "opencode.json"), { force: true });
       rmSync(join(repo, "AGENTS.md"), { force: true });

@@ -85,8 +85,11 @@ instead. All writes are idempotent and removable with `codelens uninstall`.
 
 `command` is the absolute path to the installed `codelens` launcher (written by
 the installer); for a manual snippet use `npx -y @fodx/codelens`. CodeLens uses
-root priority `--cwd` → MCP Roots → process cwd; for Cursor, project-local
-config is the reliable fallback if global MCP Roots are unavailable.
+root priority `--cwd` → MCP Roots → process cwd. **Project-local installs**
+(`--location=local`) attach the server to the workspace: Cursor uses
+`--cwd ${workspaceFolder}`, and other hosts pin the concrete workspace path.
+**Global installs** keep empty args and rely on MCP Roots, so prefer local
+install for any client that doesn't send Roots.
 
 **Routing instructions** are also written so the host prefers codelens tools for
 discovery over raw grep/read:

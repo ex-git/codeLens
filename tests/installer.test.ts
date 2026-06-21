@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { runInstall, runUninstall, printConfig, HOSTS } from "../src/installer/agents.js";
 import { INSTRUCTIONS_START, INSTRUCTIONS_END } from "../src/installer/agents.js";
 import { mkdtempSync, rmSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -221,5 +221,64 @@ describe("installer: claude slash commands", () => {
   it("only claude gets command files (cursor/opencode have none)", () => {
     const r = runInstall({ serverCommand: CMD, location: "global", target: "all", instructions: false });
     expect(r.commands.map((c) => c.host)).toEqual(["claude"]);
+  });
+});
+
+describe("installer: local installs attach --cwd to the workspace", () => {
+  let ws: string;
+  let prevCwd: string;
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "ce-ws-"));
+    prevCwd = process.cwd();
+    process.chdir(ws);
+  });
+  afterEach(() => {
+    process.chdir(prevCwd);
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  it("claude local .mcp.json pins concrete workspace cwd", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["claude"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(ws, ".mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", process.cwd()] });
+  });
+
+  it("gemini local settings.json pins concrete workspace cwd", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["gemini"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(ws, ".gemini", "settings.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens.args).toEqual(["--cwd", process.cwd()]);
+  });
+
+  it("opencode local command array includes --cwd", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["opencode"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(ws, "opencode.json"), "utf-8"));
+    expect(cfg.mcp.codelens.command).toEqual([CMD, "--cwd", process.cwd()]);
+  });
+
+  it("codex local toml args include --cwd", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["codex"], instructions: false });
+    const content = readFileSync(join(ws, ".codex", "config.toml"), "utf-8");
+    expect(content).toContain(`args = ["--cwd",`);
+    expect(content).toContain(process.cwd());
+  });
+
+  it("cursor local uses the ${workspaceFolder} variable", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["cursor"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(ws, ".cursor", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}"] });
+  });
+
+  it("global installs keep empty args (rely on MCP Roots)", () => {
+    const fakeHome2 = mkdtempSync(join(tmpdir(), "ce-gh-"));
+    const origHome2 = process.env.HOME;
+    process.env.HOME = fakeHome2;
+    try {
+      runInstall({ serverCommand: CMD, location: "global", target: ["gemini"], instructions: false });
+      const cfg = JSON.parse(readFileSync(join(fakeHome2, ".gemini", "settings.json"), "utf-8"));
+      expect(cfg.mcpServers.codelens.args).toEqual([]);
+    } finally {
+      if (origHome2 === undefined) delete process.env.HOME; else process.env.HOME = origHome2;
+      rmSync(fakeHome2, { recursive: true, force: true });
+    }
   });
 });

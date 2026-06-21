@@ -11,6 +11,7 @@ All notable changes to this project are documented here. This project follows
 
 ### Changed
 - Cursor project-local install now writes `args: ["--cwd", "${workspaceFolder}"]` and routing prompts now report workspace attachment issues instead of silently falling back to raw search.
+- Project-local installs for all writable hosts (Claude, Gemini, opencode, Codex) now pin the concrete workspace path via `--cwd`; global installs keep empty args and rely on MCP Roots.
 
 ## [2.1.0] - 2026-06-21
 
