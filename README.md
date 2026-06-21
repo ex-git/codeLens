@@ -55,8 +55,12 @@ codelens uninstall                         # remove from all agents
 **Upgrade:**
 ```bash
 codelens upgrade --check   # is an update available?
-codelens upgrade           # git pull + rebuild
+codelens upgrade           # git pull + rebuild + refresh global agent config/routing
 ```
+Upgrade reports the rebuilt version and re-applies global agent config + routing
+for detected hosts. For Cursor per-workspace attachment, also run
+`codelens install --target cursor --location local --yes` from the repo root, then
+restart your agent.
 
 **Uninstall everything:**
 ```bash
