@@ -5,6 +5,8 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-21
+
 ### Added
 - Deterministic offline `npm run eval:agent` harness comparing CodeLens-style discovery with raw-scan proxy metrics.
 - Package metadata test to ensure README-linked docs are included in the npm package.
