@@ -25,7 +25,7 @@ or `freshness:"partial"`, read that file directly before relying on indexed
 snippets/edges. If `cl_current.inGitRepo` is false or the repo path is not this
 workspace, report the setup issue and ask the user to run
 `codelens install --target cursor --location local --yes` from the workspace root;
-do not silently broad-fallback to raw `find`/`grep`. After `git checkout`, call
+do not silently fall back to raw `find`/`grep`. After `git checkout`, call
 `cl_current` again; the new branch index activates automatically.
 
 See `docs/routing.md` for full instructions.

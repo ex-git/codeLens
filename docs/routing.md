@@ -29,7 +29,7 @@ If `cl_current.inGitRepo` is false or `repo` points outside the current
 workspace, CodeLens is not attached to this workspace. Report the setup issue and
 ask the user to run `codelens install --target cursor --location local --yes`
 from the workspace root (or restart the MCP server after roots attach). Do not
-silently broad-fallback to raw `find`/`grep` for discovery.
+silently fall back to raw `find`/`grep` for discovery.
 
 ## When raw grep/find/read is fine (or better)
 

@@ -80,7 +80,7 @@ Raw \`grep\`/\`find\`/\`read\` is fine when:
 - the repo is tiny or familiar
 
 If a result has \`stale:true\` or \`freshness:"partial"\`, read that file directly before relying on indexed snippets/edges.
-If \`cl_current.inGitRepo\` is false or the repo path is not this workspace, report the setup issue and ask the user to run \`codelens install --target cursor --location local --yes\` from the workspace root; do not silently broad-fallback to raw find/grep.
+If \`cl_current.inGitRepo\` is false or the repo path is not this workspace, report the setup issue and ask the user to run \`codelens install --target cursor --location local --yes\` from the workspace root; do not silently fall back to raw find/grep.
 Always use \`cl_expand\` or a raw read for the exact file you're about to edit.
 Results are scoped to the current branch; call \`cl_current\` after a
 \`git checkout\`. See \`docs/routing.md\`. Remove with: \`codelens uninstall\`.`;

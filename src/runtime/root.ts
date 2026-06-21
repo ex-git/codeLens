@@ -23,9 +23,13 @@ export function parseCwdArg(args: string[]): ParsedCwdArgs {
   return { cwd, args: rest };
 }
 
+/** True when an explicit --cwd value is usable (exists and not an unexpanded template). */
+export function isUsableCwd(cwd: string | undefined): boolean {
+  return !!cwd && !cwd.includes("${") && existsSync(cwd);
+}
+
 /** Resolve a user/client-provided cwd, falling back when a host leaves template variables unexpanded. */
 export function resolveCwd(cwd: string | undefined, fallback = process.cwd()): string {
-  if (!cwd || cwd.includes("${")) return resolveReal(fallback);
-  if (!existsSync(cwd)) return resolveReal(fallback);
-  return resolveReal(cwd);
+  if (!isUsableCwd(cwd)) return resolveReal(fallback);
+  return resolveReal(cwd!);
 }

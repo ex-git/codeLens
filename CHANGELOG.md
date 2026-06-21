@@ -10,7 +10,7 @@ All notable changes to this project are documented here. This project follows
 - Best-effort MCP Roots support for clients such as Cursor that provide workspace roots.
 
 ### Changed
-- Cursor project-local install now writes `args: ["--cwd", "${workspaceFolder}"]` and routing prompts now report workspace attachment issues instead of silently broad-falling back to raw search.
+- Cursor project-local install now writes `args: ["--cwd", "${workspaceFolder}"]` and routing prompts now report workspace attachment issues instead of silently falling back to raw search.
 
 ## [2.1.0] - 2026-06-21
 

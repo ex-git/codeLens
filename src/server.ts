@@ -13,7 +13,7 @@ import { cli } from "./cli.js";
 import { registerWatcher } from "./index/reindex.js";
 import { VERSION } from "./version.js";
 import { detectScope } from "./git/scope.js";
-import { parseCwdArg, resolveCwd } from "./runtime/root.js";
+import { parseCwdArg, resolveCwd, isUsableCwd } from "./runtime/root.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -96,16 +96,21 @@ export async function main(): Promise<void> {
   const ctx: ServerContext = runtime.ctx;
   let watcher = runtime.watcher;
   let stopPrune = runtime.stopPrune;
-  let rootsChecked = !!parsed.cwd;
+  // Only treat root resolution as settled when an explicit, usable --cwd was
+  // given. If --cwd was missing/unusable (e.g. unexpanded ${workspaceFolder}),
+  // we fell back to process.cwd() and should still query MCP Roots.
+  let rootsChecked = isUsableCwd(parsed.cwd);
   const serverRef: { current?: McpServer } = {};
 
   async function switchRoot(repoRoot: string): Promise<void> {
     if (repoRoot === ctx.repoRoot) return;
+    // Open the new runtime first; only tear down the old one if it succeeds, so
+    // a failure (e.g. DB permission error) leaves the working root intact.
+    const next = openRuntime(repoRoot);
     watcher.stop();
     stopPrune();
     ctx.coreDb.close();
     ctx.ctxDb.close();
-    const next = openRuntime(repoRoot);
     ctx.repoRoot = next.ctx.repoRoot;
     ctx.coreDb = next.ctx.coreDb;
     ctx.ctxDb = next.ctx.ctxDb;
