@@ -3,24 +3,30 @@ import { resolveReal } from "../util/paths.js";
 
 export interface ParsedCwdArgs {
   cwd?: string;
+  autoIndex?: string;
   args: string[];
 }
 
-/** Strip a global --cwd option before CLI/MCP dispatch. */
+/** Strip global --cwd and --auto-index options before CLI/MCP dispatch. */
 export function parseCwdArg(args: string[]): ParsedCwdArgs {
   const rest: string[] = [];
   let cwd: string | undefined;
+  let autoIndex: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--cwd") {
       cwd = args[++i];
     } else if (arg.startsWith("--cwd=")) {
       cwd = arg.slice("--cwd=".length);
+    } else if (arg === "--auto-index") {
+      autoIndex = args[++i];
+    } else if (arg.startsWith("--auto-index=")) {
+      autoIndex = arg.slice("--auto-index=".length);
     } else {
       rest.push(arg);
     }
   }
-  return { cwd, args: rest };
+  return { cwd, autoIndex, args: rest };
 }
 
 /** True when an explicit --cwd value is usable (exists and not an unexpanded template). */

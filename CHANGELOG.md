@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-21
+
+### Added
+- Added `--auto-index` option to the CLI and installer (`missing` (default), `always`, or `never`). CodeLens now automatically builds the index in the background when the server starts up in a workspace if no index exists for the current branch. This ensures the index is ready by the time the agent tries to search, without requiring an explicit `cl_refresh` call. Cursor installations default to `--auto-index missing`.
+
 ## [2.1.3] - 2026-06-21
 
 ### Changed

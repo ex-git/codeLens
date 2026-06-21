@@ -34,10 +34,12 @@ export type TargetSpec = "auto" | "all" | "none" | string[];
  * global installs return [] and rely on MCP Roots (a single global config must
  * not pin one repo).
  */
-function workspaceCwdArgs(hostId: string, loc?: Location): string[] {
-  if (hostId === "cursor") return ["--cwd", "${workspaceFolder}"];
-  if (loc !== "local") return [];
-  return ["--cwd", process.cwd()];
+function workspaceCwdArgs(hostId: string, loc?: Location, autoIndex?: string): string[] {
+  const args = [];
+  if (hostId === "cursor") args.push("--cwd", "${workspaceFolder}");
+  else if (loc === "local") args.push("--cwd", process.cwd());
+  if (autoIndex && autoIndex !== "never") args.push("--auto-index", autoIndex);
+  return args;
 }
 
 export interface HostAdapter {
@@ -54,9 +56,9 @@ export interface HostAdapter {
   /** True if the host appears installed (config dir / app present). */
   detect(): boolean;
   /** Build the MCP server entry value to store. */
-  buildEntry(serverCommand: string, loc?: Location): unknown;
+  buildEntry(serverCommand: string, loc?: Location, autoIndex?: string): unknown;
   /** Apply the entry to the host config (idempotent). Returns write info. */
-  apply(serverCommand: string, loc: Location): ApplyResult;
+  apply(serverCommand: string, loc: Location, autoIndex?: string): ApplyResult;
   /** Remove our entry from the host config. */
   remove(loc: Location): ApplyResult;
   /** Config key/section name we own (for removal). */
@@ -229,10 +231,10 @@ class ClaudeCodeTarget implements HostAdapter {
   detect(): boolean {
     return existsSync(join(homedir(), ".claude.json")) || existsSync(join(homedir(), ".claude"));
   }
-  buildEntry(cmd: string, loc?: Location): unknown {
-    return { command: cmd, args: workspaceCwdArgs(this.id, loc) };
+  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown {
+    return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) };
   }
-  apply(cmd: string, loc: Location): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc)); }
+  apply(cmd: string, loc: Location, autoIndex?: string): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
   remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
   commandsDir(loc: Location): string {
     return loc === "global" ? join(homedir(), ".claude", "commands") : join(process.cwd(), ".claude", "commands");
@@ -271,7 +273,7 @@ alwaysApply: true
 ` + INSTRUCTIONS_BODY;
   }
   detect(): boolean { return existsSync(join(homedir(), ".cursor")); }
-  buildEntry(cmd: string, loc?: Location): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc) }; }
+  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
   apply(cmd: string, loc: Location): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc)); }
   remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
 }
@@ -287,7 +289,7 @@ class GeminiTarget implements HostAdapter {
     return loc === "global" ? join(homedir(), ".gemini", "GEMINI.md") : join(process.cwd(), "GEMINI.md");
   }
   detect(): boolean { return existsSync(join(homedir(), ".gemini")); }
-  buildEntry(cmd: string, loc?: Location): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc) }; }
+  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
   apply(cmd: string, loc: Location): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc)); }
   remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
 }
@@ -304,8 +306,8 @@ class OpencodeTarget implements HostAdapter {
     return loc === "global" ? join(homedir(), ".config", "opencode", "AGENTS.md") : join(process.cwd(), "AGENTS.md");
   }
   detect(): boolean { return existsSync(join(homedir(), ".config", "opencode")) || existsSync(join(process.cwd(), "opencode.json")); }
-  buildEntry(cmd: string, loc?: Location): unknown {
-    return { type: "local", command: [cmd, ...workspaceCwdArgs(this.id, loc)], enabled: true };
+  buildEntry(cmd: string, loc?: Location, autoIndex?: string): unknown {
+    return { type: "local", command: [cmd, ...workspaceCwdArgs(this.id, loc, autoIndex)], enabled: true };
   }
   apply(cmd: string, loc: Location): ApplyResult {
     // opencode uses a "mcp" object whose values are {type, command, enabled}.
@@ -346,8 +348,8 @@ class CodexTarget implements HostAdapter {
   }
   detect(): boolean { return existsSync(join(homedir(), ".codex")); }
   buildEntry(_cmd: string): unknown { return null; } // TOML; use tomlBlock()
-  tomlBlock(cmd: string, loc?: Location): string {
-    const args = workspaceCwdArgs(this.id, loc);
+  tomlBlock(cmd: string, loc?: Location, autoIndex?: string): string {
+    const args = workspaceCwdArgs(this.id, loc, autoIndex);
     return `${CODEX_START}\n[mcp_servers.codelens]\ncommand = "${cmd.replace(/"/g, '\\"')}"\nargs = ${JSON.stringify(args)}\n${CODEX_END}`;
   }
   apply(cmd: string, loc: Location): ApplyResult {
@@ -418,6 +420,7 @@ export interface InstallOptions {
   instructions?: boolean;     // also write routing instructions (default true)
   yes?: boolean;             // non-interactive
   dryRun?: boolean;
+  autoIndex?: string;
 }
 
 export interface InstallReport {
