@@ -35,6 +35,19 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
+function withTempHome<T>(fn: () => T): T {
+  const home = mkdtempSync(join(tmpdir(), "ce-search-home-"));
+  const previous = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) delete process.env.HOME;
+    else process.env.HOME = previous;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 describe("splitIdentifiers", () => {
   it("splits identifiers with bounds, dedupe, and short-token filtering", () => {
     expect(splitIdentifiers("validateSession user_id MAX_SESSION_LEN", { maxTokens: 10 })).toEqual([
@@ -228,36 +241,40 @@ describe("ctxCurrent", () => {
 
 
   it("reports indexing while auto-index marker exists", () => {
-    const db = openMemoryDb();
-    const indexId = computeIndexId(scope!);
-    try {
-      markAutoIndexing(indexId, repo);
-      const c = ctxCurrent(db, repo);
-      expect(c.inGitRepo).toBe(true);
-      expect(c.status).toBe("indexing");
-      expect(c.indexId).toBeNull();
-      expect(c.indexingStartedAt).toEqual(expect.any(Number));
-      expect(c.indexingAgeMs).toEqual(expect.any(Number));
-    } finally {
-      clearAutoIndexing(indexId);
-      db.close();
-    }
+    withTempHome(() => {
+      const db = openMemoryDb();
+      const indexId = computeIndexId(scope!);
+      try {
+        markAutoIndexing(indexId, repo);
+        const c = ctxCurrent(db, repo);
+        expect(c.inGitRepo).toBe(true);
+        expect(c.status).toBe("indexing");
+        expect(c.indexId).toBeNull();
+        expect(c.indexingStartedAt).toEqual(expect.any(Number));
+        expect(c.indexingAgeMs).toEqual(expect.any(Number));
+      } finally {
+        clearAutoIndexing(indexId);
+        db.close();
+      }
+    });
   });
 
   it("cl_refresh reports indexing instead of duplicating an active auto-index", () => {
-    const db = openMemoryDb();
-    const indexId = computeIndexId(scope!);
-    try {
-      markAutoIndexing(indexId, repo);
-      const r = ctxRefresh(db, scope!);
-      expect(r.status).toBe("indexing");
-      expect(r.indexId).toBe(indexId);
-      expect(r.indexedFiles).toBe(0);
-      expect(r.indexingStartedAt).toEqual(expect.any(Number));
-    } finally {
-      clearAutoIndexing(indexId);
-      db.close();
-    }
+    withTempHome(() => {
+      const db = openMemoryDb();
+      const indexId = computeIndexId(scope!);
+      try {
+        markAutoIndexing(indexId, repo);
+        const r = ctxRefresh(db, scope!);
+        expect(r.status).toBe("indexing");
+        expect(r.indexId).toBe(indexId);
+        expect(r.indexedFiles).toBe(0);
+        expect(r.indexingStartedAt).toEqual(expect.any(Number));
+      } finally {
+        clearAutoIndexing(indexId);
+        db.close();
+      }
+    });
   });
 
   it("reports missing outside git repo", () => {

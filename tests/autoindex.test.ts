@@ -19,6 +19,19 @@ function makeRepo(): { repo: string; cleanup: () => void } {
   return { repo, cleanup: () => rmSync(repo, { recursive: true, force: true }) };
 }
 
+function withTempHome<T>(fn: () => T): T {
+  const home = mkdtempSync(join(tmpdir(), "ce-autoindex-home-"));
+  const previous = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) delete process.env.HOME;
+    else process.env.HOME = previous;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 describe("auto-index helpers", () => {
   it("normalizes invalid modes to the provided fallback", () => {
     expect(normalizeAutoIndexMode("always")).toBe("always");
@@ -28,21 +41,23 @@ describe("auto-index helpers", () => {
   });
 
   it("tracks and clears indexing markers", () => {
-    const { repo, cleanup } = makeRepo();
-    const scope = detectScope(repo)!;
-    const indexId = computeIndexId(scope);
-    try {
-      clearAutoIndexing(indexId);
-      expect(isAutoIndexing(indexId)).toBe(false);
-      markAutoIndexing(indexId, repo);
-      expect(isAutoIndexing(indexId)).toBe(true);
-      expect(getAutoIndexStatus(indexId)).toMatchObject({ indexId, repoRoot: repo, startedAt: expect.any(Number), ageMs: expect.any(Number) });
-      clearAutoIndexing(indexId);
-      expect(isAutoIndexing(indexId)).toBe(false);
-    } finally {
-      clearAutoIndexing(indexId);
-      cleanup();
-    }
+    withTempHome(() => {
+      const { repo, cleanup } = makeRepo();
+      const scope = detectScope(repo)!;
+      const indexId = computeIndexId(scope);
+      try {
+        clearAutoIndexing(indexId);
+        expect(isAutoIndexing(indexId)).toBe(false);
+        markAutoIndexing(indexId, repo);
+        expect(isAutoIndexing(indexId)).toBe(true);
+        expect(getAutoIndexStatus(indexId)).toMatchObject({ indexId, repoRoot: repo, startedAt: expect.any(Number), ageMs: expect.any(Number) });
+        clearAutoIndexing(indexId);
+        expect(isAutoIndexing(indexId)).toBe(false);
+      } finally {
+        clearAutoIndexing(indexId);
+        cleanup();
+      }
+    });
   });
 
   it("requires indexed files before an index counts as persistent", () => {

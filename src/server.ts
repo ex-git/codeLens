@@ -14,7 +14,7 @@ import { computeIndexId } from "./index/identity.js";
 import { cli } from "./cli.js";
 import { registerWatcher } from "./index/reindex.js";
 import { VERSION } from "./version.js";
-import { detectScope } from "./git/scope.js";
+import { detectScope, type GitScope } from "./git/scope.js";
 import { parseCwdArg, resolveCwd, isUsableCwd } from "./runtime/root.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
@@ -107,20 +107,16 @@ export async function main(): Promise<void> {
   const autoIndexMode = normalizeAutoIndexMode(parsed.autoIndex, "missing");
   let autoIndexTriggeredFor: string | null = null;
 
-  function activateReadyIndex(): void {
-    const scope = detectScope(ctx.repoRoot);
-    if (scope) activatePersistentIndexIfReady(ctx.coreDb, scope);
+  function activateReadyIndex(scope: GitScope): void {
+    activatePersistentIndexIfReady(ctx.coreDb, scope);
   }
 
-  function checkAndTriggerAutoIndex(): void {
+  function checkAndTriggerAutoIndex(scope: GitScope): void {
     if (!rootsChecked || autoIndexMode === "never" || !ctx.repoRoot) return;
-
-    const scope = detectScope(ctx.repoRoot);
-    if (!scope) return;
 
     const indexId = computeIndexId(scope);
     if (autoIndexTriggeredFor === indexId) return;
-    activateReadyIndex();
+    activateReadyIndex(scope);
 
     const shouldIndex = autoIndexMode === "always" || (autoIndexMode === "missing" && !hasPersistentIndex(ctx.coreDb, scope));
     if (!shouldIndex) return;
@@ -156,8 +152,10 @@ export async function main(): Promise<void> {
 
   async function settleRootAndTriggerAutoIndex(): Promise<void> {
     await tryResolveMcpRoots();
-    activateReadyIndex();
-    checkAndTriggerAutoIndex();
+    const scope = detectScope(ctx.repoRoot);
+    if (!scope) return;
+    activateReadyIndex(scope);
+    checkAndTriggerAutoIndex(scope);
   }
 
   async function beforeTool(): Promise<void> {
