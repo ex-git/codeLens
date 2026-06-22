@@ -5,6 +5,8 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-06-21
+
 ### Fixed
 - Fixed auto-index propagation and behavior: installed configs now include `--auto-index missing`, background indexing runs in a detached child process, `missing` checks persistent index state, and `cl_current` can report `status: "indexing"` with `indexingStartedAt`/`indexingAgeMs`.
 - Guarded `cl_refresh` and query activation against duplicating an active background auto-index; `cl_refresh` returns `status:"indexing"` with timing fields while a background index is running.
