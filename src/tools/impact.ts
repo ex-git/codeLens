@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { getActiveIndexId, getIndex } from "../index/manager.js";
-import { getPendingPaths } from "../index/staleness.js";
+import { requireActiveIndex } from "../index/manager.js";
+import { freshnessFromPending, isStalePath, markStale } from "../index/staleness.js";
 import { neighbors, testsFor, type GraphNeighbor } from "../graph/query.js";
 
 export interface ImpactTarget {
@@ -84,7 +84,7 @@ function staleAware(indexId: string, n: GraphNeighbor, provenance: ImpactHandle[
     provenance,
     confidenceLabel: confidenceLabel(n.confidence),
   };
-  if (getPendingPaths(indexId).has(n.path)) item.stale = true;
+  markStale(item, indexId, n.path);
   return item;
 }
 
@@ -157,20 +157,18 @@ export function ctxImpact(
   db: Database.Database,
   opts: { symbol?: string; path?: string; depth?: number; includeTests?: boolean },
 ): ImpactResult {
-  const indexId = getActiveIndexId();
-  if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
+  const indexId = requireActiveIndex(db);
   if (!opts.symbol && !opts.path) throw new Error("cl_impact requires symbol or path");
 
   const depth = clampDepth(opts.depth);
   const includeTests = opts.includeTests ?? true;
-  const pendingPaths = getPendingPaths(indexId);
   let targetPath = opts.path?.replace(/^\.?\//, "");
   let targetSymbol: SymbolRow | undefined;
 
   if (opts.symbol) {
     const matches = resolveSymbol(db, indexId, opts.symbol, targetPath);
     if (matches.length > 1 && !targetPath) {
-      const candidates = matches.map((m) => candidateFrom(m, pendingPaths.has(m.path)));
+      const candidates = matches.map((m) => candidateFrom(m, isStalePath(indexId, m.path)));
       const out: ImpactResult = {
         indexId,
         candidates,
@@ -180,9 +178,8 @@ export function ctxImpact(
         affectedTests: [],
         depth,
         confidenceNote: "Multiple symbols matched; pass both symbol and path to disambiguate before trusting impact results.",
-        freshness: pendingPaths.size > 0 ? "partial" : "fresh",
+        ...freshnessFromPending(indexId),
       };
-      if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
       return out;
     }
     targetSymbol = matches[0];
@@ -196,9 +193,8 @@ export function ctxImpact(
         affectedTests: [],
         depth,
         confidenceNote: "No indexed symbol matched; try cl_search or pass a repo-relative path.",
-        freshness: pendingPaths.size > 0 ? "partial" : "fresh",
+        ...freshnessFromPending(indexId),
       };
-      if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
       return out;
     }
     targetPath = targetSymbol.path;
@@ -222,7 +218,7 @@ export function ctxImpact(
 
   const out: ImpactResult = {
     indexId,
-    target: targetFrom(targetSymbol, targetPath, pendingPaths.has(targetPath)),
+    target: targetFrom(targetSymbol, targetPath, isStalePath(indexId, targetPath)),
     callers,
     callees,
     affectedFiles,
@@ -235,8 +231,7 @@ export function ctxImpact(
       affectedTests: affectedTests.length,
     },
     confidenceNote: "Impact is derived from indexed file/symbol edges. calls/references are currently strongest for TS/JS; path-heuristic tests are conservative and lower-confidence; sparse languages may need cl_search/cl_expand follow-up.",
-    freshness: pendingPaths.size > 0 ? "partial" : "fresh",
+    ...freshnessFromPending(indexId),
   };
-  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
   return out;
 }

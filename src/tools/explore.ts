@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { getActiveIndexId, getIndex } from "../index/manager.js";
-import { getPendingPaths } from "../index/staleness.js";
+import { requireActiveIndex } from "../index/manager.js";
+import { markStale } from "../index/staleness.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ctxSearch, type SearchHandle, type SnippetMode } from "./search.js";
 
@@ -95,8 +95,7 @@ export function ctxExplore(
   query: string,
   opts?: { limit?: number; cursor?: string; contentType?: "code" | "prose"; snippet?: SnippetMode; relatedDepth?: number; maxFiles?: number; maxResultsPerFile?: number; maxRelated?: number },
 ): ExploreResult {
-  const indexId = getActiveIndexId();
-  if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
+  const indexId = requireActiveIndex(db);
 
   const search = ctxSearch(db, query, {
     limit: opts?.limit ?? DEFAULT_LIMIT,
@@ -104,7 +103,6 @@ export function ctxExplore(
     contentType: opts?.contentType,
     snippet: opts?.snippet ?? "compact",
   });
-  const pendingPaths = getPendingPaths(indexId);
   const byFile = new Map<string, ExploreFile>();
   const seenSignatureByFile = new Map<string, Map<string, ExploreItem>>();
 
@@ -112,7 +110,7 @@ export function ctxExplore(
     let file = byFile.get(hit.path);
     if (!file) {
       file = { path: hit.path, results: [] };
-      if (pendingPaths.has(hit.path)) file.stale = true;
+      markStale(file, indexId, hit.path);
       byFile.set(hit.path, file);
     }
 
@@ -165,7 +163,7 @@ export function ctxExplore(
         if (seenRelated.has(key)) continue;
         seenRelated.add(key);
         const item: ExploreRelation = { sourcePath, ...n };
-        if (pendingPaths.has(n.path)) item.stale = true;
+        markStale(item, indexId, n.path);
         related.push(item);
       }
     } catch {

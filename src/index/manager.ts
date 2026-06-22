@@ -5,6 +5,17 @@ import { computeIndexId } from "./identity.js";
 /**
  * Index manager: create/activate branch-scoped indexes and track the active
  * index for the current process. WAL is already configured by openDb (Step 2).
+ *
+ * Design constraint — process-global active index:
+ * The "active index" is held in a module-level `activeIndexId` singleton, NOT
+ * passed per-call. This is intentional: CodeLens runs as a single MCP server
+ * process serving one repo workspace, so one active index at a time is the
+ * correct model. Consequences:
+ *   - Query tools call `requireActiveIndex(db)` / `getActiveIndexId()` and
+ *     implicitly rely on the process having activated an index first.
+ *   - `setActiveIndex(id)` is the test hook for switching indexes in tests.
+ *   - Multi-repo or multi-workspace use within a single process is NOT
+ *     supported by design; run separate processes per workspace.
  */
 
 export interface IndexRow {
@@ -72,4 +83,16 @@ export function getActiveIndexId(): string | null {
 /** Fetch an index row by id. */
 export function getIndex(db: Database.Database, indexId: string): IndexRow | undefined {
   return db.prepare("SELECT * FROM indexes WHERE id = ?").get(indexId) as IndexRow | undefined;
+}
+
+/**
+ * Require an active index for the current process, validated against the db.
+ * Returns the active index id, or throws the canonical "no active index" error
+ * used by every query tool. Centralizes the guard so all tools reject stale or
+ * unknown index ids identically.
+ */
+export function requireActiveIndex(db: Database.Database): string {
+  const id = getActiveIndexId();
+  if (!id || !getIndex(db, id)) throw new Error("no active index — call cl_refresh first");
+  return id;
 }

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { getActiveIndexId, getIndex } from "../index/manager.js";
-import { getPendingPaths } from "../index/staleness.js";
+import { requireActiveIndex } from "../index/manager.js";
+import { freshnessFromPending, markStale } from "../index/staleness.js";
 
 /**
  * cl_map: outline / repo-map.
@@ -56,8 +56,7 @@ export function ctxMap(
   db: Database.Database,
   opts?: { path?: string; limit?: number; all?: boolean },
 ): MapResult {
-  const indexId = getActiveIndexId();
-  if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
+  const indexId = requireActiveIndex(db);
 
   const fileLimit = Math.min(Math.max(1, opts?.limit ?? DEFAULT_FILE_LIMIT), MAX_FILE_LIMIT);
   const prefix = (opts?.path ?? "").replace(/^\.?\//, "").replace(/\/$/, "");
@@ -100,13 +99,11 @@ export function ctxMap(
   const distinctPaths = new Set(rows.map((r) => r.path));
   const truncated = distinctPaths.size > byFile.size;
 
-  const pendingPaths = getPendingPaths(indexId);
   const files: MapFile[] = [...byFile.entries()].map(([path, symbols]) => {
     const item: MapFile = { path, symbols };
-    if (pendingPaths.has(path)) item.stale = true;
+    markStale(item, indexId, path);
     return item;
   });
-  const out: MapResult = { indexId, files, fileCount: files.length, truncated, freshness: pendingPaths.size > 0 ? "partial" : "fresh" };
-  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
+  const out: MapResult = { indexId, files, fileCount: files.length, truncated, ...freshnessFromPending(indexId) };
   return out;
 }

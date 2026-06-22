@@ -1,5 +1,14 @@
 import type Database from "better-sqlite3";
 import { getActiveIndexId } from "./manager.js";
+import { deleteIndexRows as deleteIndexRowsStmt } from "../db/queries.js";
+
+// Re-export the whole-index deletion helper for backward-compatible callers
+// (e.g. tools/prune.ts). The statements live in db/queries.ts; this thin wrapper
+// preserves the transactional contract existing callers rely on.
+export function deleteIndexRows(db: Database.Database, indexId: string): void {
+  const tx = db.transaction(() => deleteIndexRowsStmt(db, indexId));
+  tx();
+}
 
 /**
  * TTL pruner (Step 22).
@@ -54,18 +63,6 @@ export function computeExpiry(row: {
   return row.last_accessed_at + RETENTION.inactiveBranchDays * 86400_000;
 }
 
-export function deleteIndexRows(db: Database.Database, indexId: string): void {
-  const tx = db.transaction(() => {
-    db.prepare("DELETE FROM chunks_fts WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM chunks WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM symbols WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM edges WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM files WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM index_locks WHERE index_id = ?").run(indexId);
-    db.prepare("DELETE FROM indexes WHERE id = ?").run(indexId);
-  });
-  tx();
-}
 
 /** Prune expired inactive indexes. Respects never-delete guards. */
 export function pruneIndexes(db: Database.Database, now = Date.now()): PruneResult {

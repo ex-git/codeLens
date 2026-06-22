@@ -66,7 +66,7 @@ export function releaseWriteLease(db: Database.Database, indexId: string, owner 
   db.prepare("DELETE FROM index_locks WHERE index_id = ? AND owner = ?").run(indexId, owner);
 }
 
-/** Generate a unique owner id (for tests that want isolation). */
+/** Generate a unique owner id (for tests that want isolation). Lease-scoped, not an indexed-row id, so it intentionally stays inline rather than using util/id.ts. */
 export function newOwnerId(): string {
   return "own_" + randomUUID();
 }

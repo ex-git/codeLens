@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { getActiveIndexId, getIndex } from "../index/manager.js";
-import { getPendingPaths } from "../index/staleness.js";
+import { requireActiveIndex } from "../index/manager.js";
+import { freshnessFromPending, markStale } from "../index/staleness.js";
 import { neighbors as graphNeighbors, testsFor, type GraphNeighbor } from "../graph/query.js";
 
 /**
@@ -30,10 +30,8 @@ export function ctxRelated(
   path: string,
   opts?: { types?: string[]; depth?: number; direction?: "out" | "in" | "both" },
 ): RelatedResult {
-  const indexId = getActiveIndexId();
-  if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
+  const indexId = requireActiveIndex(db);
   const ns: GraphNeighbor[] = graphNeighbors(db, indexId, path, opts ?? {});
-  const pendingPaths = getPendingPaths(indexId);
   const results: RelatedHandle[] = ns.map((n) => {
     const item: RelatedHandle = {
       handle: `rel:${n.path}`,
@@ -42,29 +40,25 @@ export function ctxRelated(
       hops: n.hops,
       confidence: n.confidence,
     };
-    if (pendingPaths.has(n.path)) item.stale = true;
+    markStale(item, indexId, n.path);
     return item;
   });
-  const out: RelatedResult = { indexId, results, freshness: pendingPaths.size > 0 ? "partial" : "fresh" };
-  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
+  const out: RelatedResult = { indexId, results, ...freshnessFromPending(indexId) };
   return out;
 }
 
 /** cl_related variant: tests for a given source path. */
 export function ctxRelatedTests(db: Database.Database, sourcePath: string): RelatedResult {
-  const indexId = getActiveIndexId();
-  if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
+  const indexId = requireActiveIndex(db);
   const ns = testsFor(db, indexId, sourcePath);
-  const pendingPaths = getPendingPaths(indexId);
   const out: RelatedResult = {
     indexId,
     results: ns.map((n) => {
       const item: RelatedHandle = { handle: `rel:${n.path}`, path: n.path, edgeType: n.edgeType, hops: n.hops, confidence: n.confidence };
-      if (pendingPaths.has(n.path)) item.stale = true;
+      markStale(item, indexId, n.path);
       return item;
     }),
-    freshness: pendingPaths.size > 0 ? "partial" : "fresh",
+    ...freshnessFromPending(indexId),
   };
-  if (pendingPaths.size > 0) out.pendingFiles = pendingPaths.size;
   return out;
 }

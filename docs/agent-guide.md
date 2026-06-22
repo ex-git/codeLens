@@ -50,7 +50,7 @@ End-to-end workflow for a coding agent using codelens.
 ## Tool choice
 
 - Use `cl_explore` for broad questions: "how does X work?", "show the flow around Y", or surveying an unfamiliar area. It combines search, compact source previews, and relationships in one call.
-- Use `cl_search` when you only need ranked handles/locations.
+- Use `cl_search` when you need ranked handles/locations.
 - Use `cl_related` to expand from a known file.
 - Use `cl_impact` before editing shared code to see callers/callees/affected tests.
 - Use `cl_expand` (or raw read) for exact current file content before editing.

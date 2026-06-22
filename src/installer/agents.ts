@@ -87,9 +87,9 @@ Prefer the codelens MCP tools (\`cl_search\`, \`cl_explore\`, \`cl_related\`,
 discovery — they keep context lean and are branch-scoped.
 
 Use codelens when:
-- you don't know the exact name/string (semantic or conceptual search)
+- you don't know the exact name/string (semantic or conceptual search via \`cl_search\`)
 - you need broad orientation in one call (\`cl_explore\`)
-- you need relationships (importers, tests, callers), blast radius before edits (\`cl_impact\`), or a file outline
+- you need relationships (importers, tests, callers), blast radius before edits (\`cl_impact\`), or a per-file outline (\`cl_map\`)
 - the repo is large or unfamiliar, or you'd otherwise grep + read many files
 
 Raw \`grep\`/\`find\`/\`read\` is fine when:
@@ -220,10 +220,32 @@ function removeCommandFiles(dir: string, names: string[]): ApplyResult[] {
 // ── Host adapters ─────────────────────────────────────────────
 
 
-class ClaudeCodeTarget implements HostAdapter {
+/**
+ * Base for JSON-MCP hosts (claude/cursor/gemini) that store our server entry
+ * under a stable `mcpServers.<entryKey>` key. Provides the shared `entryKey`,
+ * `apply` (idempotent upsert), and `remove` (delete key) so pure-JSON hosts
+ * only override config/instructions/detect/buildEntry. Hosts with non-standard
+ * config shapes (opencode `mcp` object, codex TOML) implement HostAdapter directly.
+ */
+abstract class BaseJsonMcpHost implements HostAdapter {
+  readonly entryKey = "codelens";
+  abstract readonly id: string;
+  abstract readonly name: string;
+  abstract configPath(loc: Location): string;
+  abstract instructionsPath(loc: Location): string;
+  abstract detect(): boolean;
+  abstract buildEntry(serverCommand: string, loc?: Location, autoIndex?: AutoIndexMode): unknown;
+  apply(serverCommand: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult {
+    return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(serverCommand, loc, autoIndex));
+  }
+  remove(loc: Location): ApplyResult {
+    return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey);
+  }
+}
+
+class ClaudeCodeTarget extends BaseJsonMcpHost {
   readonly id = "claude";
   readonly name = "Claude Code";
-  readonly entryKey = "codelens";
   configPath(loc: Location): string {
     return loc === "global" ? join(homedir(), ".claude.json") : join(process.cwd(), ".mcp.json");
   }
@@ -236,8 +258,6 @@ class ClaudeCodeTarget implements HostAdapter {
   buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown {
     return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) };
   }
-  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
-  remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
   commandsDir(loc: Location): string {
     return loc === "global" ? join(homedir(), ".claude", "commands") : join(process.cwd(), ".claude", "commands");
   }
@@ -254,10 +274,9 @@ class ClaudeCodeTarget implements HostAdapter {
   }
 }
 
-class CursorTarget implements HostAdapter {
+class CursorTarget extends BaseJsonMcpHost {
   readonly id = "cursor";
   readonly name = "Cursor";
-  readonly entryKey = "codelens";
   dedicatedInstructions = true;
   configPath(loc: Location): string {
     return loc === "global" ? join(homedir(), ".cursor", "mcp.json") : join(process.cwd(), ".cursor", "mcp.json");
@@ -276,14 +295,11 @@ alwaysApply: true
   }
   detect(): boolean { return existsSync(join(homedir(), ".cursor")); }
   buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
-  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
-  remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
 }
 
-class GeminiTarget implements HostAdapter {
+class GeminiTarget extends BaseJsonMcpHost {
   readonly id = "gemini";
   readonly name = "Gemini CLI";
-  readonly entryKey = "codelens";
   configPath(loc: Location): string {
     return loc === "global" ? join(homedir(), ".gemini", "settings.json") : join(process.cwd(), ".gemini", "settings.json");
   }
@@ -292,8 +308,6 @@ class GeminiTarget implements HostAdapter {
   }
   detect(): boolean { return existsSync(join(homedir(), ".gemini")); }
   buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
-  apply(cmd: string, loc: Location, autoIndex?: AutoIndexMode): ApplyResult { return jsonApply(this.configPath(loc), "mcpServers", this.entryKey, this.buildEntry(cmd, loc, autoIndex)); }
-  remove(loc: Location): ApplyResult { return jsonRemove(this.configPath(loc), "mcpServers", this.entryKey); }
 }
 
 class OpencodeTarget implements HostAdapter {
