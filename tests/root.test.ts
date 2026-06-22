@@ -7,9 +7,14 @@ import { resolveReal } from "../src/util/paths.js";
 
 describe("parseCwdArg", () => {
   it("strips --cwd <value> and --cwd=<value>", () => {
-    expect(parseCwdArg(["--cwd", "/a", "search", "x"])).toEqual({ cwd: "/a", args: ["search", "x"] });
-    expect(parseCwdArg(["--cwd=/b", "index"])).toEqual({ cwd: "/b", args: ["index"] });
-    expect(parseCwdArg(["index"])).toEqual({ cwd: undefined, args: ["index"] });
+    expect(parseCwdArg(["--cwd", "/a", "search", "x"])).toEqual({ cwd: "/a", autoIndex: undefined, args: ["search", "x"] });
+    expect(parseCwdArg(["--cwd=/b", "index"])).toEqual({ cwd: "/b", autoIndex: undefined, args: ["index"] });
+    expect(parseCwdArg(["index"])).toEqual({ cwd: undefined, autoIndex: undefined, args: ["index"] });
+  });
+
+  it("strips --auto-index <mode> and --auto-index=<mode>", () => {
+    expect(parseCwdArg(["--auto-index", "missing", "index"])).toEqual({ cwd: undefined, autoIndex: "missing", args: ["index"] });
+    expect(parseCwdArg(["--cwd=/repo", "--auto-index=never"])).toEqual({ cwd: "/repo", autoIndex: "never", args: [] });
   });
 });
 

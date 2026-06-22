@@ -78,11 +78,11 @@ instead. All writes are idempotent and removable with `codelens uninstall`.
 
 | Host | target id | Config file (global → local) | Entry shape |
 |---|---|---|---|
-| Claude Code | `claude` | `~/.claude.json` → `.mcp.json` | `mcpServers.codelens = { command, args: [] }` |
-| Cursor | `cursor` | `~/.cursor/mcp.json` → `.cursor/mcp.json` | `mcpServers.codelens = { command, args: ["--cwd", "${workspaceFolder}"] }` (Cursor expands the variable per-workspace) |
-| Gemini CLI | `gemini` | `~/.gemini/settings.json` → `.gemini/settings.json` | `mcpServers.codelens = { command, args: [] }` |
-| opencode | `opencode` | `~/.config/opencode/opencode.json` → `./opencode.json` | `mcp.codelens = { type: "local", command: [cmd], enabled: true }` |
-| Codex CLI | `codex` | `~/.codex/config.toml` → `.codex/config.toml` | TOML `[mcp_servers.codelens]` block (`command`, `args = []`) |
+| Claude Code | `claude` | `~/.claude.json` → `.mcp.json` | `mcpServers.codelens = { command, args: ["--auto-index", "missing"] }` (local also adds `--cwd <workspace>`) |
+| Cursor | `cursor` | `~/.cursor/mcp.json` → `.cursor/mcp.json` | `mcpServers.codelens = { command, args: ["--cwd", "${workspaceFolder}", "--auto-index", "missing"] }` (Cursor expands the variable per-workspace) |
+| Gemini CLI | `gemini` | `~/.gemini/settings.json` → `.gemini/settings.json` | `mcpServers.codelens = { command, args: ["--auto-index", "missing"] }` (local also adds `--cwd <workspace>`) |
+| opencode | `opencode` | `~/.config/opencode/opencode.json` → `./opencode.json` | `mcp.codelens = { type: "local", command: [cmd, "--auto-index", "missing"], enabled: true }` (local also adds `--cwd <workspace>`) |
+| Codex CLI | `codex` | `~/.codex/config.toml` → `.codex/config.toml` | TOML `[mcp_servers.codelens]` block (`command`, `args = ["--auto-index", "missing"]`; local also adds `--cwd <workspace>`) |
 | Pi Coding Agent | `pi` | `pi install npm:@fodx/codelens` (loads `adapters/pi/codelens.extension.ts`) | Pi extension that bridges the MCP server via `pi.registerTool` |
 
 `command` is the absolute path to the installed `codelens` launcher (written by
@@ -90,7 +90,9 @@ the installer); for a manual snippet use `npx -y @fodx/codelens`. CodeLens uses
 root priority `--cwd` → MCP Roots → process cwd. **Cursor** config (global or
 local) attaches to the active workspace via `--cwd ${workspaceFolder}`. Other
 hosts pin the concrete workspace path for local installs and rely on MCP Roots
-for global installs.
+for global installs. Installed MCP configs default to `--auto-index missing`, so
+CodeLens starts a detached background index when a workspace/branch has no
+complete index yet; pass `--auto-index never` to disable.
 
 **Routing instructions** are also written so the host prefers codelens tools for
 discovery over raw grep/read:
@@ -154,8 +156,11 @@ node build/src/server.js
 
 ## Quickstart
 
-1. In your repo, the agent calls `cl_current` (builds index if missing) or
-   `cl_refresh` explicitly.
+1. Open a repo in your agent/IDE. Installed MCP configs auto-index missing
+   branch indexes in the background; `cl_current` may show `status: "indexing"`
+   with `indexingStartedAt`/`indexingAgeMs` until it finishes. You can still run
+   `cl_refresh` explicitly; if auto-index is already running, `cl_refresh` reports
+   `status:"indexing"` instead of duplicating work.
 2. `cl_explore(query: "session validation flow")` → grouped previews + relationship map in one call.
 3. `cl_search(query: "session validation")` → lean ranked handles when you only need locations.
 4. `cl_impact(symbol: "validateSession", path: "src/auth/session.ts")` → callers/callees/affected tests before edits.
@@ -210,9 +215,11 @@ npm run eval:agent  # deterministic with/without-CodeLens discovery proxy
   signals. Code identifiers are matched via bounded subtoken expansion
   (e.g. `session` finds `validateSession`); a true semantic/vector layer is
   still out of scope.
-- **Lazy on-demand indexing for very large repos** is future work — `cl_refresh`
-  is eager. The recommended pattern for large repos is one `cl_refresh` then
-  incremental + the file watcher thereafter (cold index ~3.5s for 2000 files).
+- **Auto-index is eager per branch** — installed MCP configs start a detached
+  `--auto-index missing` build when a workspace/branch has no complete index.
+  `cl_refresh` remains available for explicit rebuilds and is guarded against
+  duplicating an active background index. The file watcher
+  handles incremental freshness thereafter (cold index ~3.5s for 2000 files).
 - **Routing hooks are advisory** (soft nudges, not hard blocks) per the no-
   throttling design decision — raw reads remain allowed for editing/verification.
 - **npm package** — published on npm as `@fodx/codelens`; releases are

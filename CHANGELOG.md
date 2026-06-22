@@ -5,10 +5,14 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+- Fixed auto-index propagation and behavior: installed configs now include `--auto-index missing`, background indexing runs in a detached child process, `missing` checks persistent index state, and `cl_current` can report `status: "indexing"` with `indexingStartedAt`/`indexingAgeMs`.
+- Guarded `cl_refresh` and query activation against duplicating an active background auto-index; `cl_refresh` returns `status:"indexing"` with timing fields while a background index is running.
+
 ## [2.2.0] - 2026-06-21
 
 ### Added
-- Added `--auto-index` option to the CLI and installer (`missing` (default), `always`, or `never`). CodeLens now automatically builds the index in the background when the server starts up in a workspace if no index exists for the current branch. This ensures the index is ready by the time the agent tries to search, without requiring an explicit `cl_refresh` call. Cursor installations default to `--auto-index missing`.
+- Added `--auto-index` option to the CLI and installer (`missing` (default), `always`, or `never`). CodeLens now automatically builds the index in the background when the server starts up in a workspace if no index exists for the current branch. This warms the index before the agent searches, without requiring an explicit `cl_refresh` call. Cursor installations default to `--auto-index missing`.
 
 ## [2.1.3] - 2026-06-21
 

@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import { detectScope, type GitScope } from "../git/scope.js";
-import { getActiveIndexId, getIndex } from "../index/manager.js";
+import { getIndex, setActiveIndex } from "../index/manager.js";
+import { computeIndexId } from "../index/identity.js";
+import { getAutoIndexStatus, hasPersistentIndex } from "../index/autoindex.js";
 
 /**
  * cl_current (Step 8): repo/branch/index status with freshness fields.
@@ -13,10 +15,12 @@ export interface CurrentResult {
   branch: string;
   headSha: string;
   indexId: string | null;
-  status: "active" | "missing" | "stale";
+  status: "active" | "missing" | "stale" | "indexing";
   dirtyFiles: number;
   lastIndexedAt: number | null;
   indexStatus: string | null; // indexes.status column
+  indexingStartedAt: number | null;
+  indexingAgeMs: number | null;
   inGitRepo: boolean;
 }
 
@@ -32,20 +36,27 @@ export function ctxCurrent(db: Database.Database, repoRoot: string, scope?: GitS
       dirtyFiles: 0,
       lastIndexedAt: null,
       indexStatus: null,
+      indexingStartedAt: null,
+      indexingAgeMs: null,
       inGitRepo: false,
     };
   }
-  const activeId = getActiveIndexId();
-  const row = activeId ? getIndex(db, activeId) : undefined;
+  const indexId = computeIndexId(s);
+  const row = getIndex(db, indexId);
+  const indexing = getAutoIndexStatus(indexId);
+  const complete = hasPersistentIndex(db, s);
+  if (complete && !indexing) setActiveIndex(indexId);
   return {
     repo: s.repoRoot,
     branch: s.branch,
     headSha: s.headSha,
-    indexId: activeId,
-    status: row ? (row.status === "active" ? "active" : "stale") : "missing",
+    indexId: complete ? indexId : null,
+    status: indexing ? "indexing" : complete ? (row?.status === "active" ? "active" : "stale") : "missing",
     dirtyFiles: s.dirtyFiles.length,
     lastIndexedAt: row?.last_accessed_at ?? null,
     indexStatus: row?.status ?? null,
+    indexingStartedAt: indexing?.startedAt ?? null,
+    indexingAgeMs: indexing?.ageMs ?? null,
     inGitRepo: true,
   };
 }

@@ -5,13 +5,13 @@ JSON-serialized text content.
 
 ## cl_current
 - **Input**: none
-- **Returns**: `{ repo, branch, headSha, indexId, status, dirtyFiles, lastIndexedAt, inGitRepo }`
-- **Use**: first call to check index readiness.
+- **Returns**: `{ repo, branch, headSha, indexId, status, dirtyFiles, lastIndexedAt, indexingStartedAt, indexingAgeMs, inGitRepo }`
+- **Use**: first call to check index readiness. `status` is `active`, `missing`, `stale`, or `indexing` (background auto-index in progress). When `indexing`, use `indexingStartedAt`/`indexingAgeMs` to decide whether to wait, retry, or investigate a stuck index.
 
 ## cl_refresh
 - **Input**: none
-- **Returns**: `{ indexId, branch, indexedFiles, totalChunks, skipped, status }`
-- **Use**: build/update the current branch index.
+- **Returns**: `{ indexId, branch, indexedFiles, totalChunks, skipped, status, indexingStartedAt?, indexingAgeMs? }`
+- **Use**: build/update the current branch index. If background auto-index is already running, returns `status:"indexing"` instead of duplicating work.
 
 ## cl_search
 - **Input**: `{ query: string, limit?: number=5, cursor?: string, contentType?: "code"|"prose", related?: boolean, snippet?: "none"|"headline"|"compact"|"full" }`

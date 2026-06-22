@@ -9,8 +9,10 @@ Prefer the codelens tools for code **discovery** — they keep the context windo
 lean and are branch-scoped. They are guidance, not an absolute mandate: use the
 right tool for the job.
 
-0. Call `cl_current` to confirm the index is ready; if `status` is `missing`,
-   call `cl_refresh` to build it.
+0. Call `cl_current` to confirm the index state. Installed MCP configs auto-index
+   missing branch indexes in the background; if `status` is `indexing`, wait or
+   retry shortly and use `indexingStartedAt`/`indexingAgeMs` to decide whether it
+   looks stuck. If `status` remains `missing`, call `cl_refresh` explicitly.
 
 Prefer codelens when:
 - you don't know the exact name/string (semantic or conceptual search via `cl_search`)
@@ -47,9 +49,10 @@ you're looking for.
 
 Results are scoped to the **current branch/worktree index only** by default.
 After `git checkout`, results will not leak from the old branch. If you switch
-branches mid-task, call `cl_current` again; the tool activates/creates the new
-branch's index automatically. MCP clients that provide Roots let CodeLens attach
-to the active workspace even from a global MCP config; otherwise use `--cwd` or
+branches mid-task, call `cl_current` again; installed MCP configs auto-index the
+new branch in the background when its index is missing. MCP clients that provide
+Roots let CodeLens attach to the active workspace even from a global MCP config;
+Cursor uses `--cwd ${workspaceFolder}`, and other clients can use `--cwd` or
 project-local MCP config.
 
 ## Freshness
@@ -57,8 +60,11 @@ project-local MCP config.
 Query tools auto-refresh changed files before returning (budget-bounded). If
 the response carries `freshness: "partial"`, `pendingFiles > 0`, or per-result
 `stale:true`, some recent edits were not reindexed within the budget. Read those
-files directly with `cl_expand`/raw read, then call `cl_refresh` or re-query when
-you need indexed relationships to catch up.
+files directly with `cl_expand`/raw read. Call `cl_refresh` when you need indexed
+relationships to catch up, after large branch/file changes, when `cl_current`
+remains `missing`, or when the user explicitly asks for a rebuild. If `cl_refresh`
+returns `status:"indexing"`, a background auto-index is already running; wait or
+retry instead of launching more indexing work.
 
 ## Tool quick reference
 
