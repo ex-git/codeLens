@@ -1,10 +1,10 @@
 import type Database from "better-sqlite3";
-import { getActiveIndexId, touchIndex, getIndex } from "../index/manager.js";
+import { getActiveIndexId, touchIndex, requireActiveIndex } from "../index/manager.js";
 import { extractSnippet, headlineSnippet } from "../search/snippet.js";
 import { rank, normalize, type SignalScore } from "../search/rank.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
-import { getPendingPaths } from "../index/staleness.js";
+import { getPendingPaths, markStale } from "../index/staleness.js";
 import { splitIdentifiers } from "../search/identifiers.js";
 import { queryTokens, quoteFtsTerm } from "../search/query.js";
 import type { GitScope } from "../git/scope.js";
@@ -178,8 +178,7 @@ export function ctxSearch(
   query: string,
   opts?: { limit?: number; cursor?: string; scope?: GitScope; refreshBudgetMs?: number; contentType?: "code" | "prose"; related?: boolean; snippet?: SnippetMode },
 ): SearchResult {
-  const indexId = getActiveIndexId();
-  if (!indexId || !getIndex(db, indexId)) throw new Error("no active index — call cl_refresh first");
+  const indexId = requireActiveIndex(db);
   touchIndex(db, indexId);
   const { freshness, pendingFiles } = prelude(db, opts);
   const limit = opts?.limit ?? DEFAULT_LIMIT;
@@ -204,12 +203,12 @@ export function ctxSearch(
      WHERE index_id = ? AND path = ? AND start_line <= ? AND end_line >= ?
      ORDER BY (end_line - start_line) ASC`,
   );
-  const queryTerms = query.toLowerCase().split(/[^a-z0-9_]+/i).filter((t) => t.length > 1);
+  const queryTokensLower = query.toLowerCase().split(/[^a-z0-9_]+/i).filter((t) => t.length > 1);
   const headlineFor = (src: FtsRow): string => {
     let sig: string | null = null;
     try {
       const syms = sigStmt.all(indexId, src.path, src.endLine, src.startLine) as { name: string; kind: string; signature: string | null }[];
-      const chosen = syms.find((s) => queryTerms.some((t) => s.name.toLowerCase().includes(t))) ?? syms[0];
+      const chosen = syms.find((s) => queryTokensLower.some((t) => s.name.toLowerCase().includes(t))) ?? syms[0];
       if (chosen) sig = chosen.signature ?? `${chosen.kind} ${chosen.name}`;
     } catch { /* symbols best-effort */ }
     return headlineSnippet(src.content, query, sig);
@@ -223,7 +222,6 @@ export function ctxSearch(
       case "full": return extractSnippet(src.content, query, 1500);
     }
   };
-  const pendingPaths = getPendingPaths(indexId);
   const results: SearchHandle[] = page.map((r, i) => {
     const src = r.chunkId ? byChunk.get(r.chunkId) : undefined;
     const rankOffset = offset + i;
@@ -235,7 +233,7 @@ export function ctxSearch(
       why: r.why.join(","),
       preview: src ? renderPreview(src, rankOffset) : "",
     };
-    if (pendingPaths.has(r.path)) item.stale = true;
+    markStale(item, indexId, r.path);
     return item;
   });
   const nextCursor = hasMore && results.length > 0 ? encodeCursor(offset + results.length, results[results.length - 1]!.handle || `${offset}`) : null;

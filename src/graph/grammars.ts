@@ -52,6 +52,15 @@ export function isSupported(lang: string | null | undefined): lang is string {
   return loadGrammar(lang) !== null;
 }
 
+/** Whether a language's chunks should be indexed as `content_type = "code"`.
+ *  Single source of truth: any language with a registered tree-sitter grammar
+ *  is "code". Adding a grammar therefore automatically classifies its chunks
+ *  as code (previously a separate hardcoded 8-language list had to be kept in
+ *  sync, which silently mislabeled ruby/php as prose). */
+export function isCodeLanguage(lang: string | null | undefined): boolean {
+  return isSupported(lang);
+}
+
 /** Create a configured Parser for a language, or null if unavailable. */
 export function makeParser(lang: string): Parser | null {
   const grammar = loadGrammar(lang);

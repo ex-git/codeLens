@@ -5,6 +5,19 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-06-21
+
+### Changed
+- `content_type` is now derived from the grammar registry (`grammars.isSupported`) instead of a hardcoded language list. Languages with a registered tree-sitter grammar (now including Ruby and PHP) index chunks as `"code"` and are matched by `cl_search` with `contentType:"code"`; previously they indexed as `"prose"`.
+- `cl_expand` now validates the active index the same way other query tools do (rejects unknown/stale index ids via the shared `requireActiveIndex` guard).
+- Agent routing instructions injected by `codelens install` now name `cl_search` and `cl_map` inline in the "use codelens when" bullets, matching `docs/routing.md`.
+
+### Internal
+- DRY refactor: extracted `requireActiveIndex`, `freshnessFromPending`, `markStale`/`isStalePath`, `deleteFileRows`/`deleteIndexRows` (new `src/db/queries.ts`), and `id(prefix)` (new `src/util/id.ts`) helpers; the three JSON-MCP installer hosts (claude/cursor/gemini) now share a `BaseJsonMcpHost` base class.
+- Removed the `queryTerms` name shadowing and the `path = path!` / `void db` code smells in `expand.ts`.
+- ESLint `no-unused-vars` promoted to `error`; `tsconfig.json` enables `noUnusedLocals`/`noUnusedParameters`.
+- Documented the process-global active-index singleton (`index/manager.ts`) and the `ensureActive` lazy-build side-effect (`tools/registry.ts`).
+
 ## [2.2.1] - 2026-06-21
 
 ### Fixed

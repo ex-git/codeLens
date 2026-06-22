@@ -45,7 +45,17 @@ function withScope(ctx: ServerContext) {
   return detectScope(ctx.repoRoot);
 }
 
-/** Ensure an active index exists for the current repo scope before query tools. */
+/**
+ * Ensure an active index exists for the current repo scope before query tools.
+ *
+ * Side effect: when no active index exists and no background auto-index is
+ * running, this will trigger a foreground `buildIndex(...)`. So a *query* tool
+ * (cl_search, cl_explore, …) may build the index on first call. This is
+ * intentional (lazy bootstrap beats forcing every caller to cl_refresh first),
+ * but callers wanting a fast failure or a non-mutating check should call
+ * `cl_current` instead. Background auto-index activation is preferred when
+ * a completed auto-index is available.
+ */
 function ensureActive(ctx: ServerContext): string {
   const scope = withScope(ctx);
   if (!scope) throw new Error("not inside a git repo (or plain dir support not enabled)");

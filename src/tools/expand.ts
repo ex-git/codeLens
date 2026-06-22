@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveReal, repoRelative } from "../util/paths.js";
-import { getActiveIndexId } from "../index/manager.js";
+import { requireActiveIndex } from "../index/manager.js";
 import { dedent } from "../search/snippet.js";
 
 /**
@@ -29,9 +29,7 @@ export function ctxExpand(
   repoRoot: string,
   opts: { path?: string; handle?: string; startLine?: number; endLine?: number; budget?: number },
 ): ExpandResult {
-  const indexId = getActiveIndexId();
-  if (!indexId) throw new Error("no active index — call cl_refresh first");
-  void db;
+  const indexId = requireActiveIndex(db);
 
   let path: string;
   let startLine: number | undefined = opts.startLine;
@@ -52,8 +50,6 @@ export function ctxExpand(
   } else {
     throw new Error("cl_expand requires path or handle");
   }
-  // (path is set in both branches above; TS needs a definite assignment)
-  path = path!;
 
   const root = resolveReal(repoRoot);
   const abs = join(root, path);

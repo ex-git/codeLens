@@ -1,5 +1,4 @@
 import type Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveReal } from "../util/paths.js";
@@ -7,9 +6,11 @@ import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
 import { extractSymbols, type ExtractedSymbol } from "../graph/symbols.js";
 import { extractEdges, insertEdges, type ExtractedEdge } from "../graph/edges.js";
-import { parseFile } from "../graph/grammars.js";
+import { parseFile, isCodeLanguage } from "../graph/grammars.js";
 import { isTestFile, resolveTestTargets } from "../graph/tests.js";
 import { withIdentifierSubtokens } from "../search/identifiers.js";
+import { deleteFileRows } from "../db/queries.js";
+import { id } from "../util/id.js";
 
 /**
  * FTS5 chunk indexer (Step 7).
@@ -274,7 +275,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
   const abs = join(root, file.path);
   const text = readFileText(abs);
   const hash = contentHash(text);
-  const fileId = "file_" + randomUUID();
+  const fileId = id("file_");
 
   const parserEligible = Buffer.byteLength(text, "utf8") <= STRUCTURAL_CHUNK_MAX_BYTES;
   const lang = file.language ?? "";
@@ -283,7 +284,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
   const edges = tree ? extractEdges(file.path, lang, text, root, knownFiles, tree) : [];
   const lineCount = text.split("\n").length;
   const symbolRows = symbols.map((sym) => ({
-    id: "sym_" + randomUUID(),
+    id: id("sym_"),
     sym,
     rangeKey: chunkSymbolRangeKey(sym, lineCount),
   }));
@@ -298,14 +299,10 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     // Remove ALL prior rows for this path+index so reindexing a changed file
     // does not leave stale symbols/edges. Without this, incremental reindex
     // would accumulate duplicate symbols + stale graph edges.
-    db.prepare("DELETE FROM chunks_fts WHERE index_id = ? AND path = ?").run(indexId, file.path);
-    db.prepare("DELETE FROM chunks WHERE index_id = ? AND path = ?").run(indexId, file.path);
-    db.prepare("DELETE FROM symbols WHERE index_id = ? AND path = ?").run(indexId, file.path);
     // Only clear THIS file's outbound edges (from_path = file.path). Inbound edges
     // from other files (e.g. Y imports X) stay valid since X still exists; they
-    // are only removed when X is deleted (deleteFileFromIndex uses from OR to).
-    db.prepare("DELETE FROM edges WHERE index_id = ? AND from_path = ?").run(indexId, file.path);
-    db.prepare("DELETE FROM files WHERE index_id = ? AND path = ?").run(indexId, file.path);
+    // are only removed when X is deleted (deleteFileFromIndex uses edgeMode "both").
+    deleteFileRows(db, indexId, file.path, "out");
 
     db.prepare(
       `INSERT INTO files (id, index_id, path, language, size, mtime_ms, content_hash, git_blob_sha, deleted, last_indexed_at)
@@ -334,11 +331,9 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     }
 
     for (const c of chunks) {
-      const chunkId = "chk_" + randomUUID();
+      const chunkId = id("chk_");
       const cHash = contentHash(c.content);
-      const ctype = file.language && ["typescript", "javascript", "python", "go", "rust", "java", "c", "cpp"].includes(file.language)
-        ? "code"
-        : "prose";
+      const ctype = isCodeLanguage(file.language) ? "code" : "prose";
       const symbolId = c.symbolRangeKey ? symbolIdByRange.get(c.symbolRangeKey) ?? null : null;
       const chunker = symbolId ? CHUNKER_NAMES.structural : CHUNKER_NAMES.line;
       insertChunk.run(chunkId, indexId, fileId, symbolId, file.path, c.startLine, c.endLine, c.content, cHash, ctype, chunker, CHUNKER_VERSION);
@@ -353,11 +348,11 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     );
     for (const sym of symbols) {
       // file defines symbol (file→symbol via path; symbol_id kept NULL for path-based edges)
-      insertEdge.run("edge_" + randomUUID(), indexId, file.path, file.path, "defines", 1.0);
+      insertEdge.run(id("edge_"), indexId, file.path, file.path, "defines", 1.0);
       // symbol belongs_to file
-      insertEdge.run("edge_" + randomUUID(), indexId, file.path, file.path, "belongs_to", 1.0);
+      insertEdge.run(id("edge_"), indexId, file.path, file.path, "belongs_to", 1.0);
       if (sym.exported) {
-        insertEdge.run("edge_" + randomUUID(), indexId, file.path, file.path, "exports", 1.0);
+        insertEdge.run(id("edge_"), indexId, file.path, file.path, "exports", 1.0);
       }
     }
 
@@ -366,7 +361,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     if (isTestFile(file.path)) {
       const targets = resolveTestTargets(file.path, knownFiles);
       for (const t of targets) {
-        insertEdge.run("edge_" + randomUUID(), indexId, file.path, t, "tests", 0.8);
+        insertEdge.run(id("edge_"), indexId, file.path, t, "tests", 0.8);
       }
     }
   });
@@ -377,11 +372,7 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
 /** Mark a file as deleted (remove its rows) for an index. Transactional. */
 export function deleteFileFromIndex(db: Database.Database, indexId: string, path: string): void {
   const tx = db.transaction(() => {
-    db.prepare("DELETE FROM chunks_fts WHERE index_id = ? AND path = ?").run(indexId, path);
-    db.prepare("DELETE FROM chunks WHERE index_id = ? AND path = ?").run(indexId, path);
-    db.prepare("DELETE FROM symbols WHERE index_id = ? AND path = ?").run(indexId, path);
-    db.prepare("DELETE FROM edges WHERE index_id = ? AND (from_path = ? OR to_path = ?)").run(indexId, path, path);
-    db.prepare("DELETE FROM files WHERE index_id = ? AND path = ?").run(indexId, path);
+    deleteFileRows(db, indexId, path, "both");
   });
   tx();
 }

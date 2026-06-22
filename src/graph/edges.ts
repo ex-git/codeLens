@@ -1,8 +1,8 @@
 import type Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
 import type Parser from "tree-sitter";
 import { parseFile } from "./grammars.js";
 import { resolveImportFs, resolveImport } from "./resolve.js";
+import { id } from "../util/id.js";
 
 /**
  * Edge builder (Step 14).
@@ -142,6 +142,6 @@ export function insertEdges(db: Database.Database, indexId: string, edges: Extra
   );
   for (const e of edges) {
     if (e.type === "imports" && !e.toPath) continue; // unresolved → no edge
-    stmt.run("edge_" + randomUUID(), indexId, e.fromPath, e.toPath, e.type, e.confidence);
+    stmt.run(id("edge_"), indexId, e.fromPath, e.toPath, e.type, e.confidence);
   }
 }
