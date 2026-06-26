@@ -3,7 +3,7 @@ import { spawn, execFileSync, execSync, type ChildProcessWithoutNullStreams } fr
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { daemonPaths, readDaemonMetadata } from "../src/runtime/daemon.js";
+import { daemonPaths, readDaemonMetadata, type DaemonMetadata, type DaemonPaths } from "../src/runtime/daemon.js";
 import { resolveReal } from "../src/util/paths.js";
 
 interface JsonRpcResponse {
@@ -93,6 +93,16 @@ function spawnProxy(serverJs: string, repoRoot: string, fakeHome: string): Proxy
   return new ProxyClient(child);
 }
 
+async function waitForMetadata(paths: DaemonPaths): Promise<DaemonMetadata> {
+  const start = Date.now();
+  while (Date.now() - start < 5_000) {
+    const metadata = readDaemonMetadata(paths);
+    if (metadata) return metadata;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`daemon metadata not found at ${paths.metadataPath}`);
+}
+
 describe("MCP stdio proxy entrypoint", () => {
   it("keeps --smoke direct without starting a daemon", () => {
     execSync("npm run build", { stdio: "ignore" });
@@ -124,11 +134,11 @@ describe("MCP stdio proxy entrypoint", () => {
       const toolNames = await Promise.all(clients.map(initializeAndListTools));
       expect(toolNames[0]).toContain("cl_search");
       expect(toolNames[1]).toContain("cl_search");
-      const metadata = readDaemonMetadata(paths);
-      expect(metadata?.repoRoot).toBe(realRepo);
-      expect(metadata?.pid).toBeGreaterThan(0);
+      const metadata = await waitForMetadata(paths);
+      expect(metadata.repoRoot).toBe(realRepo);
+      expect(metadata.pid).toBeGreaterThan(0);
       expect(existsSync(paths.metadataPath)).toBe(true);
-      expect(JSON.parse(readFileSync(paths.metadataPath, "utf-8"))).toMatchObject({ pid: metadata?.pid });
+      expect(JSON.parse(readFileSync(paths.metadataPath, "utf-8"))).toMatchObject({ pid: metadata.pid });
     } finally {
       for (const client of clients) client.close();
       const metadata = readDaemonMetadata(paths);
