@@ -16,6 +16,7 @@ import { registerWatcher } from "./index/reindex.js";
 import { VERSION } from "./version.js";
 import { detectScope, type GitScope } from "./git/scope.js";
 import { parseCwdArg, resolveCwd, isUsableCwd } from "./runtime/root.js";
+import { acquireDaemonLock, connectOrStartDaemon, startDaemonSocketServer } from "./runtime/daemon.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -70,41 +71,25 @@ function repoRootFromCwd(cwd?: string): string {
 
 const CLI_COMMANDS = new Set(["current","index","refresh","search","related","stats","usage","doctor","install","uninstall","upgrade","version","--print-config","-v","--version","--help","-h"]);
 
-export async function main(): Promise<void> {
-  // CLI dispatch: if the first arg is a known subcommand (bare word like
-  // `install` or a flag-style one like `--print-config`/`--version`), run the
-  // CLI with the FULL arg list so --target/--command/--yes are preserved.
-  // Otherwise start the MCP stdio server.
-  const parsed = parseCwdArg(process.argv.slice(2));
-  const fullArgs = parsed.args;
-  const head = fullArgs[0];
-  if (head && CLI_COMMANDS.has(head)) {
-    const code = await cli(process.argv.slice(2));
-    process.exit(code);
-    return;
-  }
+interface RuntimeController {
+  ctx: ServerContext;
+  bindServer(server: McpServer): void;
+  beforeTool(): Promise<void>;
+  settleRootAndTriggerAutoIndex(): Promise<void>;
+  rootsSettled(): boolean;
+  close(): void;
+}
 
-  // Smoke mode: register tools against an in-memory context and print names.
-  if (process.argv.includes("--smoke")) {
-    const ctx: ServerContext = { coreDb: openMemoryDb(), ctxDb: openMemoryContextDb(), repoRoot: "/tmp" };
-    const server = createServer(ctx);
-    void server;
-    console.log(JSON.stringify({ ok: true, tools: TOOLS.map((t) => t.name) }));
-    return;
-  }
-
-  const initialRoot = repoRootFromCwd(parsed.cwd);
+function createRuntimeController(
+  initialRoot: string,
+  opts: { rootsChecked: boolean; autoIndexMode: ReturnType<typeof normalizeAutoIndexMode> },
+): RuntimeController {
   const runtime = openRuntime(initialRoot);
   const ctx: ServerContext = runtime.ctx;
   let watcher = runtime.watcher;
   let stopPrune = runtime.stopPrune;
-  // Only treat root resolution as settled when an explicit, usable --cwd was
-  // given. If --cwd was missing/unusable (e.g. unexpanded ${workspaceFolder}),
-  // we fell back to process.cwd() and should still query MCP Roots.
-  let rootsChecked = isUsableCwd(parsed.cwd);
+  let rootsChecked = opts.rootsChecked;
   const serverRef: { current?: McpServer } = {};
-  
-  const autoIndexMode = normalizeAutoIndexMode(parsed.autoIndex, "missing");
   let autoIndexTriggeredFor: string | null = null;
 
   function activateReadyIndex(scope: GitScope): void {
@@ -112,13 +97,13 @@ export async function main(): Promise<void> {
   }
 
   function checkAndTriggerAutoIndex(scope: GitScope): void {
-    if (!rootsChecked || autoIndexMode === "never" || !ctx.repoRoot) return;
+    if (!rootsChecked || opts.autoIndexMode === "never" || !ctx.repoRoot) return;
 
     const indexId = computeIndexId(scope);
     if (autoIndexTriggeredFor === indexId) return;
     activateReadyIndex(scope);
 
-    const shouldIndex = autoIndexMode === "always" || (autoIndexMode === "missing" && !hasPersistentIndex(ctx.coreDb, scope));
+    const shouldIndex = opts.autoIndexMode === "always" || (opts.autoIndexMode === "missing" && !hasPersistentIndex(ctx.coreDb, scope));
     if (!shouldIndex) return;
 
     autoIndexTriggeredFor = indexId;
@@ -158,12 +143,29 @@ export async function main(): Promise<void> {
     checkAndTriggerAutoIndex(scope);
   }
 
-  async function beforeTool(): Promise<void> {
-    await settleRootAndTriggerAutoIndex();
-  }
+  return {
+    ctx,
+    bindServer(server: McpServer): void { serverRef.current = server; },
+    beforeTool: settleRootAndTriggerAutoIndex,
+    settleRootAndTriggerAutoIndex,
+    rootsSettled: () => rootsChecked,
+    close: () => {
+      try { watcher.stop(); } catch { /* ignore */ }
+      try { registerWatcher(null); } catch { /* ignore */ }
+      try { stopPrune(); } catch { /* ignore */ }
+      try { ctx.coreDb.close(); } catch { /* ignore */ }
+      try { ctx.ctxDb.close(); } catch { /* ignore */ }
+    },
+  };
+}
 
-  const server = createServer(ctx, beforeTool);
-  serverRef.current = server;
+async function startDirectMcpServer(parsed: ReturnType<typeof parseCwdArg>): Promise<void> {
+  const controller = createRuntimeController(repoRootFromCwd(parsed.cwd), {
+    rootsChecked: isUsableCwd(parsed.cwd),
+    autoIndexMode: normalizeAutoIndexMode(parsed.autoIndex, "missing"),
+  });
+  const server = createServer(controller.ctx, controller.beforeTool);
+  controller.bindServer(server);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -171,11 +173,112 @@ export async function main(): Promise<void> {
   // roots-only clients may need initialize to complete first, so retry briefly.
   void (async () => {
     for (let i = 0; i < 10; i++) {
-      await settleRootAndTriggerAutoIndex();
-      if (rootsChecked) break;
+      await controller.settleRootAndTriggerAutoIndex();
+      if (controller.rootsSettled()) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   })();
+}
+
+async function proxyStdioToDaemon(socket: NodeJS.ReadWriteStream): Promise<void> {
+  await new Promise<void>((resolve) => {
+    socket.once("close", resolve);
+    socket.once("end", resolve);
+    socket.once("error", resolve);
+    process.stdin.once("end", () => socket.end());
+    process.stdin.once("close", () => socket.end());
+    process.stdin.pipe(socket);
+    socket.pipe(process.stdout);
+  });
+}
+
+async function startProxyMcpServer(parsed: ReturnType<typeof parseCwdArg>): Promise<void> {
+  const repoRoot = repoRootFromCwd(parsed.cwd);
+  if (!isUsableCwd(parsed.cwd) && !detectScope(repoRoot)) {
+    await startDirectMcpServer(parsed);
+    return;
+  }
+
+  const socket = await connectOrStartDaemon(repoRoot, {
+    autoIndex: parsed.autoIndex,
+    serverJs: fileURLToPath(import.meta.url),
+  });
+  await proxyStdioToDaemon(socket);
+}
+
+async function startDaemon(parsed: ReturnType<typeof parseCwdArg>): Promise<void> {
+  const repoRoot = repoRootFromCwd(parsed.cwd);
+  const lock = acquireDaemonLock(repoRoot);
+  if (!lock) throw new Error(`codelens daemon already running for ${repoRoot}`);
+  const daemonLock = lock;
+
+  const heartbeatMs = Number.parseInt(process.env.CODELENS_DAEMON_HEARTBEAT_MS ?? "5000", 10);
+  const idleMs = Number.parseInt(process.env.CODELENS_DAEMON_IDLE_MS ?? "30000", 10);
+  const heartbeat = setInterval(() => daemonLock.heartbeat(), Number.isFinite(heartbeatMs) ? heartbeatMs : 5000);
+  const controller = createRuntimeController(repoRoot, {
+    rootsChecked: true,
+    autoIndexMode: normalizeAutoIndexMode(parsed.autoIndex, "missing"),
+  });
+  let socketServer: Awaited<ReturnType<typeof startDaemonSocketServer>> | null = null;
+
+  async function cleanup(): Promise<void> {
+    clearInterval(heartbeat);
+    try { await socketServer?.close(); } catch { /* ignore */ }
+    controller.close();
+    daemonLock.release();
+  }
+
+  function shutdown(): void {
+    void cleanup().finally(() => process.exit(0));
+  }
+
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+  process.once("exit", () => { daemonLock.release(); });
+
+  socketServer = await startDaemonSocketServer(
+    daemonLock.paths,
+    async (socket) => {
+      const server = createServer(controller.ctx, controller.beforeTool);
+      controller.bindServer(server);
+      const transport = new StdioServerTransport(socket, socket);
+      await server.connect(transport);
+    },
+    { idleMs: Number.isFinite(idleMs) ? idleMs : 30000, onIdle: shutdown },
+  );
+
+  await controller.settleRootAndTriggerAutoIndex();
+}
+
+export async function main(): Promise<void> {
+  // CLI dispatch: if the first arg is a known subcommand (bare word like
+  // `install` or a flag-style one like `--print-config`/`--version`), run the
+  // CLI with the FULL arg list so --target/--command/--yes are preserved.
+  // Otherwise start the MCP stdio server.
+  const parsed = parseCwdArg(process.argv.slice(2));
+  const fullArgs = parsed.args;
+  const head = fullArgs[0];
+  if (head && CLI_COMMANDS.has(head)) {
+    const code = await cli(process.argv.slice(2));
+    process.exit(code);
+    return;
+  }
+
+  // Smoke mode: register tools against an in-memory context and print names.
+  if (process.argv.includes("--smoke")) {
+    const ctx: ServerContext = { coreDb: openMemoryDb(), ctxDb: openMemoryContextDb(), repoRoot: "/tmp" };
+    const server = createServer(ctx);
+    void server;
+    console.log(JSON.stringify({ ok: true, tools: TOOLS.map((t) => t.name) }));
+    return;
+  }
+
+  if (head === "--daemon") {
+    await startDaemon(parsed);
+    return;
+  }
+
+  await startProxyMcpServer(parsed);
 }
 
 function openRuntime(repoRoot: string): { ctx: ServerContext; watcher: FileWatcher; stopPrune: () => void } {

@@ -58,7 +58,7 @@ describe("auto-index MCP startup integration", () => {
     const server = spawn(process.execPath, [serverJs, "--cwd", realRepo, "--auto-index", "missing"], {
       cwd: tmpdir(),
       stdio: "ignore",
-      env: { ...process.env, HOME: fakeHome },
+      env: { ...process.env, HOME: fakeHome, CODELENS_DAEMON_IDLE_MS: "1000" },
     });
 
     try {

@@ -19,6 +19,8 @@ Cursor, Gemini CLI, opencode, Codex CLI) or directly from the terminal.
   ranked alongside FTS5 + symbol-name matches.
 - **Fresh** — query tools auto-refresh changed files before answering, flag
   budget-limited stale results, and `cl_expand` always reads from disk.
+- **Singleton runtime** — MCP entry processes for the same repo/worktree share
+  one local daemon, so one watcher/index coordinator serves many agent sessions.
 - **Compact** — returns ranked handles; expand only what you need.
 - **Durable** — saved contexts live in a separate DB and survive index rebuilds.
 - **Self-cleaning** — automatic TTL prunes inactive indexes.
@@ -27,7 +29,8 @@ Cursor, Gemini CLI, opencode, Codex CLI) or directly from the terminal.
 
 One command builds the tool, installs the `codelens` launcher, and wires the MCP
 server into detected agents/IDEs automatically (Claude Code, Cursor, Gemini CLI,
-opencode, Codex CLI). Requires Node.js ≥ 22.5.
+opencode, Codex CLI). Requires Node.js ≥ 22.5. The package is published on
+[npm as `@fodx/codelens`](https://www.npmjs.com/package/@fodx/codelens).
 
 **macOS / Linux:**
 ```bash
@@ -92,7 +95,10 @@ local) attaches to the active workspace via `--cwd ${workspaceFolder}`. Other
 hosts pin the concrete workspace path for local installs and rely on MCP Roots
 for global installs. Installed MCP configs default to `--auto-index missing`, so
 CodeLens starts a detached background index when a workspace/branch has no
-complete index yet; pass `--auto-index never` to disable.
+complete index yet; pass `--auto-index never` to disable. For MCP usage,
+default entry processes proxy to one local daemon per repo/worktree; that daemon
+owns the file watcher and index coordinator, so multiple agent sessions do not
+multiply watchers for the same checkout.
 
 **Routing instructions** are also written so the host prefers codelens tools for
 discovery over raw grep/read:
@@ -218,11 +224,13 @@ npm run eval:agent  # deterministic with/without-CodeLens discovery proxy
 - **Auto-index is eager per branch** — installed MCP configs start a detached
   `--auto-index missing` build when a workspace/branch has no complete index.
   `cl_refresh` remains available for explicit rebuilds and is guarded against
-  duplicating an active background index. The file watcher
-  handles incremental freshness thereafter (cold index ~3.5s for 2000 files).
+  duplicating an active background index. A singleton repo/worktree daemon owns
+  the file watcher and handles incremental freshness thereafter (cold index
+  ~3.5s for 2000 files).
 - **Routing hooks are advisory** (soft nudges, not hard blocks) per the no-
   throttling design decision — raw reads remain allowed for editing/verification.
-- **npm package** — published on npm as `@fodx/codelens`; releases are
+- **npm package** — published on npm as
+  [`@fodx/codelens`](https://www.npmjs.com/package/@fodx/codelens); releases are
   published automatically from `v*` git tags via the `publish` workflow. Use
   `npx -y @fodx/codelens` for manual MCP configuration. See
   `.github/workflows/publish.yml`.

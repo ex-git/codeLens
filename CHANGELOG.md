@@ -5,6 +5,17 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-06-26
+
+### Added
+- Added a singleton repo/worktree daemon for MCP usage so multiple agent sessions share one file watcher and index coordinator instead of spawning duplicate watchers.
+- Added daemon lifecycle coverage for socket MCP handshakes, proxy entrypoints, idle shutdown, SIGTERM cleanup, stale metadata cleanup, and non-daemon smoke mode.
+
+### Changed
+- Default MCP startup now proxies stdio to the shared local daemon when a usable repo/worktree is available, while CLI, smoke, daemon, and no-git fallback modes remain direct.
+- `codelens upgrade` now performs best-effort daemon shutdown/stale cleanup and prunes expired indexes using existing TTL rules before rebuilding.
+- README documents the singleton daemon behavior and links to the npm package page.
+
 ## [2.2.2] - 2026-06-21
 
 ### Changed

@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { openDb } from "./db/db.js";
+import { pruneIndexes } from "./index/ttl.js";
+import { shutdownAllDaemons } from "./runtime/daemon.js";
 import { VERSION } from "./version.js";
 
 /**
@@ -63,6 +66,32 @@ export async function checkUpgrade(): Promise<UpgradeStatus> {
 
 export interface UpgradeResult { ok: boolean; message: string }
 
+export interface UpgradePruneResult { scannedDbs: number; deletedIndexes: number; failedDbs: number }
+
+export function pruneInstalledIndexes(home = homedir()): UpgradePruneResult {
+  const dir = join(home, ".codelens", "indexes");
+  const result: UpgradePruneResult = { scannedDbs: 0, deletedIndexes: 0, failedDbs: 0 };
+  let entries: string[];
+  try {
+    entries = readdirSync(dir).filter((entry) => entry.endsWith(".db"));
+  } catch {
+    return result;
+  }
+  for (const entry of entries) {
+    result.scannedDbs++;
+    let db: ReturnType<typeof openDb> | null = null;
+    try {
+      db = openDb(join(dir, entry));
+      result.deletedIndexes += pruneIndexes(db).deletedIndexes.length;
+    } catch {
+      result.failedDbs++;
+    } finally {
+      try { db?.close(); } catch { /* ignore */ }
+    }
+  }
+  return result;
+}
+
 /** Read the version from the (freshly pulled/built) app package.json. */
 export function readRootVersion(root: string): string {
   try {
@@ -95,6 +124,9 @@ export async function performUpgrade(_version?: string): Promise<UpgradeResult> 
   if (!root) return { ok: false, message: "could not locate the install dir; re-run the installer script." };
   if (!existsSync(join(root, ".git"))) return { ok: false, message: "not a git checkout; re-run the installer script to update." };
 
+  const daemonCleanup = await shutdownAllDaemons();
+  const indexPrune = pruneInstalledIndexes();
+
   const branch = git(root, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout || "main";
   const pull = git(root, ["pull", "--ff-only", "origin", branch]);
   if (!pull.ok) return { ok: false, message: `git pull failed: ${pull.stderr || pull.stdout}` };
@@ -109,8 +141,10 @@ export async function performUpgrade(_version?: string): Promise<UpgradeResult> 
   const refreshNote = refresh.ok
     ? "Refreshed global agent config + routing."
     : `Could not auto-refresh agent config (${refresh.detail}); run \`codelens install --target all --yes\`.`;
+  const daemonNote = `Daemon cleanup: scanned ${daemonCleanup.scanned}, signaled ${daemonCleanup.signaled}, stopped ${daemonCleanup.stopped}, stale cleaned ${daemonCleanup.staleCleaned}${daemonCleanup.failed ? `, failed ${daemonCleanup.failed}` : ""}.`;
+  const pruneNote = `Index prune: scanned ${indexPrune.scannedDbs} DBs, deleted ${indexPrune.deletedIndexes} expired indexes${indexPrune.failedDbs ? `, failed ${indexPrune.failedDbs} DBs` : ""}.`;
   return {
     ok: true,
-    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${refreshNote} Restart your agent(s) to pick up the new build (Cursor's global config attaches to the workspace via \${workspaceFolder}).`,
+    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${daemonNote} ${pruneNote} ${refreshNote} Restart your agent(s) to pick up the new build (Cursor's global config attaches to the workspace via \${workspaceFolder}).`,
   };
 }
