@@ -4,7 +4,7 @@
 #
 # One command sets up everything: builds the tool, puts `codelens` on
 # PATH, and wires the MCP server into your agents/IDEs (Claude Code, Cursor,
-# Gemini CLI, opencode, Codex CLI). No manual config editing.
+# Gemini CLI, Kiro, opencode, Codex CLI). No manual config editing.
 #
 #   curl -fsSL https://raw.githubusercontent.com/ex-git/codeLens/main/install.sh | sh
 #

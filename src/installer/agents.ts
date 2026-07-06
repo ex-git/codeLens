@@ -11,12 +11,13 @@ import { type AutoIndexMode, normalizeAutoIndexMode } from "../index/autoindex.j
  * the agents/IDEs the user actually runs.
  *
  * Design:
- *   - JSON hosts (claude/cursor/gemini): idempotent upsert of a stable-named
+ *   - JSON hosts (claude/cursor/gemini/kiro): idempotent upsert of a stable-named
  *     `codelens` entry under `mcpServers` (or the host's equivalent).
  *     Removal = delete that key. No marker comments (JSON has none).
  *   - opencode: writes under `mcp` with a `{type:"local", command:[...], enabled:true}` shape.
  *   - codex: TOML `[mcp_servers.codelens]` block, replaced via regex marker.
- *   - Instructions (CLAUDE.md/AGENTS.md/GEMINI.md): marker-fenced routing block.
+ *   - Instructions (CLAUDE.md/AGENTS.md/GEMINI.md/Kiro steering): marker-fenced routing block
+ *     or dedicated file, depending on host conventions.
  *   - `--print-config <id>` dumps the snippet for any host (incl. pi/vscode we
  *     don't auto-write) so users can paste into anything we don't handle.
  *
@@ -29,7 +30,9 @@ export type TargetSpec = "auto" | "all" | "none" | string[];
 /**
  * Args that attach the server to the workspace. Cursor (and VS Code family)
  * expand `${workspaceFolder}` in BOTH global and local mcp.json, so Cursor gets
- * it at any location for a one-shot attach. Other hosts have no portable
+ * it at any location for a one-shot attach. Kiro's user config is global but
+ * does not expose a portable workspace variable in its MCP config, so we pin
+ * the concrete workspace root for Kiro installs. Other hosts have no portable
  * workspace variable: local installs pin the concrete workspace root (the dir
  * the local config is written into = process.cwd() at install time), while
  * global installs rely on MCP Roots for the workspace and still include
@@ -38,7 +41,7 @@ export type TargetSpec = "auto" | "all" | "none" | string[];
 function workspaceCwdArgs(hostId: string, loc?: Location, autoIndex?: AutoIndexMode): string[] {
   const args: string[] = [];
   if (hostId === "cursor") args.push("--cwd", "${workspaceFolder}");
-  else if (loc === "local") args.push("--cwd", process.cwd());
+  else if (hostId === "kiro" || loc === "local") args.push("--cwd", process.cwd());
   if (autoIndex && autoIndex !== "never") args.push("--auto-index", autoIndex);
   return args;
 }
@@ -221,7 +224,7 @@ function removeCommandFiles(dir: string, names: string[]): ApplyResult[] {
 
 
 /**
- * Base for JSON-MCP hosts (claude/cursor/gemini) that store our server entry
+ * Base for JSON-MCP hosts (claude/cursor/gemini/kiro) that store our server entry
  * under a stable `mcpServers.<entryKey>` key. Provides the shared `entryKey`,
  * `apply` (idempotent upsert), and `remove` (delete key) so pure-JSON hosts
  * only override config/instructions/detect/buildEntry. Hosts with non-standard
@@ -308,6 +311,31 @@ class GeminiTarget extends BaseJsonMcpHost {
   }
   detect(): boolean { return existsSync(join(homedir(), ".gemini")); }
   buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown { return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex) }; }
+}
+
+class KiroTarget extends BaseJsonMcpHost {
+  readonly id = "kiro";
+  readonly name = "Kiro";
+  dedicatedInstructions = true;
+  configPath(loc: Location): string {
+    return loc === "global" ? join(homedir(), ".kiro", "settings", "mcp.json") : join(process.cwd(), ".kiro", "settings", "mcp.json");
+  }
+  instructionsPath(loc: Location): string {
+    return loc === "global" ? join(homedir(), ".kiro", "steering", "codelens.md") : join(process.cwd(), ".kiro", "steering", "codelens.md");
+  }
+  instructionsContent(): string {
+    return INSTRUCTIONS_BODY + "\n";
+  }
+  detect(): boolean {
+    // During `codelens upgrade`, auto-refresh runs from the installed app dir.
+    // Kiro entries pin --cwd, so auto-detect would retarget users away from
+    // their workspace. Explicit `--target kiro` and `--target all` still work.
+    if (process.env.CODELENS_UPGRADE_REFRESH === "1") return false;
+    return existsSync(join(homedir(), ".kiro"));
+  }
+  buildEntry(cmd: string, loc?: Location, autoIndex?: AutoIndexMode): unknown {
+    return { command: cmd, args: workspaceCwdArgs(this.id, loc, autoIndex), disabled: false };
+  }
 }
 
 class OpencodeTarget implements HostAdapter {
@@ -418,6 +446,7 @@ export const HOSTS: HostAdapter[] = [
   new ClaudeCodeTarget(),
   new CursorTarget(),
   new GeminiTarget(),
+  new KiroTarget(),
   new OpencodeTarget(),
   new CodexTarget(),
   new PiTarget(),

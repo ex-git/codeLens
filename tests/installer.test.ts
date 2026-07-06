@@ -84,6 +84,58 @@ describe("installer: instructions (marker-fenced)", () => {
   });
 });
 
+describe("installer: kiro (JSON mcpServers)", () => {
+  it("global install writes user mcp config with cwd pin", () => {
+    const r = runInstall({ serverCommand: CMD, location: "global", target: ["kiro"], instructions: false });
+    expect(r.configured.find((c) => c.host === "kiro")?.wrote).toBe(true);
+    const cfg = JSON.parse(readFileSync(join(fakeHome, ".kiro", "settings", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", process.cwd(), "--auto-index", "missing"], disabled: false });
+  });
+
+  it("preserves other Kiro mcpServers entries", () => {
+    const p = join(fakeHome, ".kiro", "settings", "mcp.json");
+    mkdirSync(join(fakeHome, ".kiro", "settings"), { recursive: true });
+    writeFileSync(p, JSON.stringify({ mcpServers: { other: { command: "x", args: [] } } }));
+    runInstall({ serverCommand: CMD, location: "global", target: ["kiro"], instructions: false });
+    const cfg = JSON.parse(readFileSync(p, "utf-8"));
+    expect(cfg.mcpServers.other).toEqual({ command: "x", args: [] });
+    expect(cfg.mcpServers.codelens).toBeDefined();
+  });
+
+  it("can disable auto-index with --auto-index never", () => {
+    runInstall({ serverCommand: CMD, location: "global", target: ["kiro"], instructions: false, autoIndex: "never" });
+    const cfg = JSON.parse(readFileSync(join(fakeHome, ".kiro", "settings", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", process.cwd()], disabled: false });
+  });
+
+  it("writes and removes a global Kiro steering file", () => {
+    runInstall({ serverCommand: CMD, location: "global", target: ["kiro"], instructions: true });
+    const p = join(fakeHome, ".kiro", "steering", "codelens.md");
+    expect(readFileSync(p, "utf-8")).toContain("cl_explore");
+    runUninstall({ location: "global", target: ["kiro"], instructions: true });
+    expect(existsSync(p)).toBe(false);
+  });
+
+  it("auto-detects ~/.kiro", () => {
+    mkdirSync(join(fakeHome, ".kiro"), { recursive: true });
+    const r = runInstall({ serverCommand: CMD, location: "global", target: "auto", instructions: false });
+    expect(r.configured.map((c) => c.host)).toContain("kiro");
+  });
+
+  it("skips Kiro during upgrade auto-refresh to avoid retargeting cwd", () => {
+    mkdirSync(join(fakeHome, ".kiro"), { recursive: true });
+    const prev = process.env.CODELENS_UPGRADE_REFRESH;
+    process.env.CODELENS_UPGRADE_REFRESH = "1";
+    try {
+      const r = runInstall({ serverCommand: CMD, location: "global", target: "auto", instructions: false });
+      expect(r.configured.map((c) => c.host)).not.toContain("kiro");
+    } finally {
+      if (prev === undefined) delete process.env.CODELENS_UPGRADE_REFRESH;
+      else process.env.CODELENS_UPGRADE_REFRESH = prev;
+    }
+  });
+});
+
 describe("installer: opencode (mcp object)", () => {
   it("writes under mcp with type/command/enabled", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["opencode"], instructions: false });
@@ -131,6 +183,7 @@ describe("installer: target resolution + print-config", () => {
     expect(ids).toContain("claude");
     expect(ids).toContain("cursor");
     expect(ids).toContain("gemini");
+    expect(ids).toContain("kiro");
     expect(ids).toContain("opencode");
     expect(ids).toContain("codex");
     // pi is print-config-only → skipped
@@ -231,7 +284,7 @@ describe("installer: claude slash commands", () => {
     runUninstall({ location: "global", target: ["claude"], instructions: false });
     expect(existsSync(join(dir, "codelens-usage.md"))).toBe(false);
   });
-  it("only claude gets command files (cursor/opencode have none)", () => {
+  it("only claude gets command files (other hosts have none)", () => {
     const r = runInstall({ serverCommand: CMD, location: "global", target: "all", instructions: false });
     expect(r.commands.map((c) => c.host)).toEqual(["claude"]);
   });
@@ -280,6 +333,12 @@ describe("installer: local installs attach --cwd to the workspace", () => {
     runInstall({ serverCommand: CMD, location: "local", target: ["cursor"], instructions: false });
     const cfg = JSON.parse(readFileSync(join(ws, ".cursor", "mcp.json"), "utf-8"));
     expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", "${workspaceFolder}", "--auto-index", "missing"] });
+  });
+
+  it("kiro local settings/mcp.json pins concrete workspace cwd", () => {
+    runInstall({ serverCommand: CMD, location: "local", target: ["kiro"], instructions: false });
+    const cfg = JSON.parse(readFileSync(join(ws, ".kiro", "settings", "mcp.json"), "utf-8"));
+    expect(cfg.mcpServers.codelens).toEqual({ command: CMD, args: ["--cwd", process.cwd(), "--auto-index", "missing"], disabled: false });
   });
 
   it("global installs keep empty args (rely on MCP Roots)", () => {

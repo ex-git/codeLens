@@ -114,7 +114,11 @@ function newBuildLauncher(root: string): { cmd: string; baseArgs: string[] } | n
 function refreshAgentConfig(root: string): { ok: boolean; detail: string } {
   const launcher = newBuildLauncher(root);
   if (!launcher) return { ok: false, detail: "new build launcher not found" };
-  const r = spawnSync(launcher.cmd, [...launcher.baseArgs, "install", "--target", "auto", "--yes"], { cwd: root, encoding: "utf-8" });
+  const r = spawnSync(launcher.cmd, [...launcher.baseArgs, "install", "--target", "auto", "--yes"], {
+    cwd: root,
+    encoding: "utf-8",
+    env: { ...process.env, CODELENS_UPGRADE_REFRESH: "1" },
+  });
   if (r.status !== 0) return { ok: false, detail: (r.stderr ?? r.stdout ?? "").slice(-300) || "install failed" };
   return { ok: true, detail: "refreshed global agent config + routing" };
 }
@@ -145,6 +149,6 @@ export async function performUpgrade(_version?: string): Promise<UpgradeResult> 
   const pruneNote = `Index prune: scanned ${indexPrune.scannedDbs} DBs, deleted ${indexPrune.deletedIndexes} expired indexes${indexPrune.failedDbs ? `, failed ${indexPrune.failedDbs} DBs` : ""}.`;
   return {
     ok: true,
-    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${daemonNote} ${pruneNote} ${refreshNote} Restart your agent(s) to pick up the new build (Cursor's global config attaches to the workspace via \${workspaceFolder}).`,
+    message: `upgraded to ${newVersion} (pulled origin/${branch}, rebuilt). ${daemonNote} ${pruneNote} ${refreshNote} Restart your agent(s) to pick up the new build (Cursor's global config attaches to the workspace via \${workspaceFolder}; rerun \`codelens install --target kiro\` from a workspace to retarget Kiro's cwd-pinned global config).`,
   };
 }

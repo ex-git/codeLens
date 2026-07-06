@@ -8,7 +8,7 @@ their context window. No chat LLM is used anywhere in the core path.
 ## Architecture
 
 ```
-Agent (Pi / Claude Code / Cursor / Gemini / opencode / Codex)
+Agent (Pi / Claude Code / Cursor / Gemini / Kiro / opencode / Codex)
    │  MCP stdio
    ▼
 CodeLens MCP server  ──▶  CLI (codelens <subcommand>)

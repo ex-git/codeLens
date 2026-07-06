@@ -11,7 +11,7 @@ your context with raw grep/read output.
 
 No chat LLM is involved — retrieval is deterministic. Surfaced as an **MCP
 server** and a **CLI**; works with any MCP-compatible client (Claude Code,
-Cursor, Gemini CLI, opencode, Codex CLI) or directly from the terminal.
+Cursor, Gemini CLI, Kiro, opencode, Codex CLI) or directly from the terminal.
 
 - **Branch isolation** — each branch/worktree has its own index; results never
   leak across branches.
@@ -29,7 +29,7 @@ Cursor, Gemini CLI, opencode, Codex CLI) or directly from the terminal.
 
 One command builds the tool, installs the `codelens` launcher, and wires the MCP
 server into detected agents/IDEs automatically (Claude Code, Cursor, Gemini CLI,
-opencode, Codex CLI). Requires Node.js ≥ 22.5. The package is published on
+Kiro, opencode, Codex CLI). Requires Node.js ≥ 22.5. The package is published on
 [npm as `@fodx/codelens`](https://www.npmjs.com/package/@fodx/codelens).
 
 **macOS / Linux:**
@@ -48,7 +48,7 @@ to choose targets explicitly or re-run later:
 
 ```bash
 codelens install --target all --yes        # wire all agents
-codelens install --target claude,cursor    # wire specific agents
+codelens install --target claude,cursor,kiro    # wire specific agents
 codelens install --target auto --location=local   # project-local config
 codelens --print-config codex              # print a snippet, no writes
 codelens uninstall                         # remove from all agents
@@ -60,15 +60,18 @@ codelens upgrade --check   # is an update available?
 codelens upgrade           # git pull + rebuild + refresh global agent config/routing
 ```
 Upgrade reports the rebuilt version and re-applies global agent config + routing
-for detected hosts. Cursor's global config attaches to the active workspace via
-`${workspaceFolder}`, so after upgrading just restart your agent.
+for detected hosts that can be safely refreshed. Cursor's global config attaches
+to the active workspace via `${workspaceFolder}`. Kiro's global config pins the
+workspace where `codelens install --target kiro` is run, so rerun that command
+from the desired workspace if you need to retarget Kiro. After upgrading,
+restart your agent.
 
 **Uninstall everything:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ex-git/codeLens/main/install.sh | sh -s -- --uninstall
 ```
 
-> Note on clients/LLMs: MCP clients (Claude Code, Cursor, …) bring their own
+> Note on clients/LLMs: MCP clients (Claude Code, Cursor, Kiro, …) bring their own
 > model — CodeLens has no LLM and configures none. The installer only wires the
 > MCP server + routing instructions into each host's config.
 
@@ -84,6 +87,7 @@ instead. All writes are idempotent and removable with `codelens uninstall`.
 | Claude Code | `claude` | `~/.claude.json` → `.mcp.json` | `mcpServers.codelens = { command, args: ["--auto-index", "missing"] }` (local also adds `--cwd <workspace>`) |
 | Cursor | `cursor` | `~/.cursor/mcp.json` → `.cursor/mcp.json` | `mcpServers.codelens = { command, args: ["--cwd", "${workspaceFolder}", "--auto-index", "missing"] }` (Cursor expands the variable per-workspace) |
 | Gemini CLI | `gemini` | `~/.gemini/settings.json` → `.gemini/settings.json` | `mcpServers.codelens = { command, args: ["--auto-index", "missing"] }` (local also adds `--cwd <workspace>`) |
+| Kiro | `kiro` | `~/.kiro/settings/mcp.json` → `.kiro/settings/mcp.json` | `mcpServers.codelens = { command, args: ["--cwd", "<install cwd>", "--auto-index", "missing"], disabled: false }` (global and local pin the workspace where install runs) |
 | opencode | `opencode` | `~/.config/opencode/opencode.json` → `./opencode.json` | `mcp.codelens = { type: "local", command: [cmd, "--auto-index", "missing"], enabled: true }` (local also adds `--cwd <workspace>`) |
 | Codex CLI | `codex` | `~/.codex/config.toml` → `.codex/config.toml` | TOML `[mcp_servers.codelens]` block (`command`, `args = ["--auto-index", "missing"]`; local also adds `--cwd <workspace>`) |
 | Pi Coding Agent | `pi` | `pi install npm:@fodx/codelens` (loads `adapters/pi/codelens.extension.ts`) | Pi extension that bridges the MCP server via `pi.registerTool` |
@@ -91,7 +95,9 @@ instead. All writes are idempotent and removable with `codelens uninstall`.
 `command` is the absolute path to the installed `codelens` launcher (written by
 the installer); for a manual snippet use `npx -y @fodx/codelens`. CodeLens uses
 root priority `--cwd` → MCP Roots → process cwd. **Cursor** config (global or
-local) attaches to the active workspace via `--cwd ${workspaceFolder}`. Other
+local) attaches to the active workspace via `--cwd ${workspaceFolder}`. **Kiro**
+config (global or local) pins `--cwd` to the directory where `codelens install`
+was run because Kiro's user MCP config has no portable workspace variable. Other
 hosts pin the concrete workspace path for local installs and rely on MCP Roots
 for global installs. Installed MCP configs default to `--auto-index missing`, so
 CodeLens starts a detached background index when a workspace/branch has no
@@ -108,6 +114,7 @@ discovery over raw grep/read:
 | Claude Code | `~/.claude/CLAUDE.md` → `./CLAUDE.md` (+ slash commands in `~/.claude/commands/codelens-*.md`) |
 | Cursor | `~/.cursor/rules/codelens.mdc` → `.cursor/rules/codelens.mdc` (dedicated, `alwaysApply`) |
 | Gemini CLI | `~/.gemini/GEMINI.md` → `./GEMINI.md` |
+| Kiro | `~/.kiro/steering/codelens.md` → `.kiro/steering/codelens.md` (dedicated steering file) |
 | opencode | `~/.config/opencode/AGENTS.md` → `./AGENTS.md` |
 | Codex CLI | `~/.codex/AGENTS.md` → `./AGENTS.md` |
 
@@ -115,6 +122,7 @@ discovery over raw grep/read:
 
 ```bash
 codelens --print-config claude    # JSON mcpServers snippet + target path
+codelens --print-config kiro      # Kiro ~/.kiro/settings/mcp.json snippet
 codelens --print-config codex     # TOML [mcp_servers.codelens] block
 codelens --print-config pi        # Pi extension manifest pointer
 ```
@@ -131,14 +139,14 @@ pi -e npm:@fodx/codelens           # try it for one run without installing
 
 > **npm discoverability:** `package.json` is tagged `pi-package` (required for
 > the Pi gallery) plus descriptive keywords (`mcp-server`,
-> `modelcontextprotocol`, `claude-code`, `cursor`, `gemini-cli`, `opencode`,
-> `codex`) so the package is findable via npm search. Only `pi-package` is
+> `modelcontextprotocol`, `claude-code`, `cursor`, `gemini-cli`, `kiro`,
+> `opencode`, `codex`) so the package is findable via npm search. Only `pi-package` is
 > confirmed to trigger a host gallery listing; the others are for search
 > discoverability and do not imply auto-listing in those hosts' marketplaces.
 
 ## Install (MCP) — manual alternative
 
-Add to your MCP client config (Claude Code, Cursor, OpenCode, Gemini CLI,
+Add to your MCP client config (Claude Code, Cursor, Kiro, OpenCode, Gemini CLI,
 Codex CLI):
 
 ```json
