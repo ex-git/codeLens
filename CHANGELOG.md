@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-07-17
+
+### Fixed
+- Fixed the npm publish workflow under npm 12 by installing and testing native dependencies before upgrading npm for Trusted Publishing. This prevents npm 12's install-script policy from blocking `better-sqlite3`, tree-sitter, and grammar bindings during CI.
+
 ## [2.4.0] - 2026-07-17
 
 ### Added

@@ -32,11 +32,6 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Use Trusted Publisher-capable npm
-        run: |
-          npm install -g npm@latest
-          npm --version
-
       - run: npm ci --legacy-peer-deps
       - run: npm run typecheck
       - run: npm run lint
@@ -48,5 +43,10 @@ jobs:
           test -f build/src/server.js
           test -f build/src/db/schema.sql
           test -f build/src/context/schema.sql
+
+      - name: Use Trusted Publisher-capable npm
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - run: npm publish --provenance --access public
