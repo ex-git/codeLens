@@ -7,8 +7,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const PERFORMANCE_INDEXES = [
+  "idx_symbols_index_path_name",
+  "idx_edges_index_from_path",
+  "idx_edges_index_to_path",
+];
+
 function chunkColumnNames(db: Database.Database): string[] {
   return (db.prepare("PRAGMA table_info(chunks)").all() as { name: string }[]).map((c) => c.name);
+}
+
+function indexNames(db: Database.Database): string[] {
+  return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[])
+    .map((row) => row.name);
 }
 
 describe("migrations", () => {
@@ -25,6 +36,7 @@ describe("migrations", () => {
     const fts = db.prepare("SELECT name FROM sqlite_master WHERE name='chunks_fts'").get();
     expect(fts).toBeTruthy();
     expect(chunkColumnNames(db)).toEqual(expect.arrayContaining(["chunker", "chunker_version"]));
+    expect(indexNames(db)).toEqual(expect.arrayContaining(PERFORMANCE_INDEXES));
     const v = db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number };
     expect(v.v).toBe(CODE_SCHEMA_VERSION);
     db.close();
@@ -46,7 +58,7 @@ describe("migrations", () => {
     }
   });
 
-  it("upgrades an existing v1 DB via v2 without editing schema.sql", () => {
+  it("upgrades an existing v1 DB through pending migrations without editing schema.sql", () => {
     const dir = mkdtempSync(join(tmpdir(), "ce-mig-v1-"));
     const path = join(dir, "test.db");
     try {
@@ -60,6 +72,7 @@ describe("migrations", () => {
       const v = db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number };
       expect(v.v).toBe(CODE_SCHEMA_VERSION);
       expect(chunkColumnNames(db)).toEqual(expect.arrayContaining(["chunker", "chunker_version"]));
+      expect(indexNames(db)).toEqual(expect.arrayContaining(PERFORMANCE_INDEXES));
       db.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -79,6 +92,6 @@ describe("migrations", () => {
 
   it("MIGRATIONS versions are unique and contiguous from 1", () => {
     const versions = MIGRATIONS.map((m) => m.version).sort((a, b) => a - b);
-    expect(versions).toEqual([1, 2]);
+    expect(versions).toEqual([1, 2, 3]);
   });
 });

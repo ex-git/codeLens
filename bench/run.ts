@@ -2,7 +2,8 @@
  * Benchmark suite (Step 26).
  *
  * Measures cold index (small repo), cl_search p50/p95, cl_related p50,
- * incremental reindex per-file, against performance budgets (Design Decision #5):
+ * incremental reindex per-file, and large-repo core search against performance
+ * budgets (Design Decision #5):
  *   search < 50ms, small-repo cold index < 3s, large lazy.
  * Exits non-zero on budget breach. Output: JSON to stdout + bench/results.json.
  *
@@ -29,6 +30,7 @@ const BUDGETS = {
   smallColdMs: 3000,
   reindexPerFileMs: 20,
   largeColdMs: 10000, // ~2000-file repo cold index (eager; lazy indexing is future work)
+  largeCoreSearchP50Ms: 50,
 };
 
 function makeRepo(root: string, fileCount: number): void {
@@ -84,6 +86,10 @@ function main(): void {
       results.pass = false;
       (results.failures as string[]).push(`search p50 ${p50.toFixed(1)}ms > ${BUDGETS.searchP50Ms}ms`);
     }
+    if (p95 > BUDGETS.searchP95Ms) {
+      results.pass = false;
+      (results.failures as string[]).push(`search p95 ${p95.toFixed(1)}ms > ${BUDGETS.searchP95Ms}ms`);
+    }
 
     // cl_related p50.
     const relTimes: number[] = [];
@@ -138,6 +144,23 @@ function main(): void {
       lSearch.push(ms(process.hrtime.bigint() - s));
     }
     (results.metrics as Record<string, unknown>).largeSearchP50Ms = percentile(lSearch, 50);
+
+    // Isolate the DB/ranking hot path from freshness scanning. Production uses
+    // a watcher to skip most full scans, while this benchmark has no watcher.
+    const largeCoreSearch: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      const s = process.hrtime.bigint();
+      ctxSearch(largeDb, `m${(i % 20) * 100} number`, { snippet: "none" });
+      largeCoreSearch.push(ms(process.hrtime.bigint() - s));
+    }
+    const largeCoreSearchP50Ms = percentile(largeCoreSearch, 50);
+    (results.metrics as Record<string, unknown>).largeCoreSearchP50Ms = largeCoreSearchP50Ms;
+    if (largeCoreSearchP50Ms > BUDGETS.largeCoreSearchP50Ms) {
+      results.pass = false;
+      (results.failures as string[]).push(
+        `large core search p50 ${largeCoreSearchP50Ms.toFixed(1)}ms > ${BUDGETS.largeCoreSearchP50Ms}ms`,
+      );
+    }
     largeDb.close();
   } finally {
     rmSync(large, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 {
   "name": "@fodx/codelens",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Local, branch-aware code search & relation graph. SQLite FTS5 + tree-sitter symbols + source-graph edges, exposed as an MCP server and CLI. No chat LLM required.",
   "license": "MIT",
   "type": "module",

@@ -38,6 +38,15 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE chunks ADD COLUMN chunker_version INTEGER;
     `,
   },
+  {
+    version: 3,
+    description: "search path indexes",
+    sql: `
+      CREATE INDEX idx_symbols_index_path_name ON symbols(index_id, path, name);
+      CREATE INDEX idx_edges_index_from_path ON edges(index_id, from_path);
+      CREATE INDEX idx_edges_index_to_path ON edges(index_id, to_path);
+    `,
+  },
 ];
 
 export const CODE_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);

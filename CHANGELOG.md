@@ -5,6 +5,16 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-17
+
+### Added
+- Added SQLite migration v3 with compound symbol-path and directional edge-path indexes for faster hybrid search and graph lookups.
+- Added migration coverage for fresh databases and upgrades, plus a large-repository core-search performance gate.
+
+### Changed
+- Large-repository core search p50 is approximately 61% lower on the 2,000-file benchmark fixture (38.24 ms to 14.52 ms locally).
+- The benchmark now enforces its existing search p95 budget instead of only reporting it.
+
 ## [2.3.0] - 2026-06-26
 
 ### Added
