@@ -5,27 +5,30 @@
 
 ## When to use codelens tools
 
-Prefer the codelens tools for code **discovery** — they keep the context window
-lean and are branch-scoped. They are guidance, not an absolute mandate: use the
-right tool for the job.
+Use the codelens tools for code **discovery** before broad raw searches or bulk
+file reads. They keep the context window lean and are branch-scoped. Choose the
+tool by intent:
 
-0. Call `cl_current` to confirm the index state. Installed MCP configs auto-index
-   missing branch indexes in the background; if `status` is `indexing`, wait or
-   retry shortly and use `indexingStartedAt`/`indexingAgeMs` to decide whether it
-   looks stuck. If `status` remains `missing`, call `cl_refresh` explicitly.
+1. Unknown area, conceptual question, execution flow, or unfamiliar subsystem:
+   start with `cl_explore` for grouped previews plus relationships.
+2. Find a symbol, behavior, or likely implementation location: use ranked hybrid
+   `cl_search` for compact handles.
+3. Find callers, importers, tests, or dependencies of a known file: use
+   `cl_related`.
+4. Assess blast radius before changing shared code: use `cl_impact`. Pass
+   `symbol` + `path` when both are known; pass `path` alone for module/file
+   impact when the symbol is uncertain.
+5. Get a cheap structural outline without reading whole files: use `cl_map`.
+6. Read exact current content after choosing a target: use `cl_expand` or a raw
+   read. Persist important context across compaction with `cl_save`/`cl_load`.
 
-Prefer codelens when:
-- you don't know the exact name/string (semantic or conceptual search via `cl_search`)
-- you need broad orientation in one call (`cl_explore`) — "how does X work?", flows, or unfamiliar areas
-- you need relationships — importers, tests, callers (`cl_related`) — or blast radius before edits (`cl_impact`)
-- you need a per-file outline / repo map (`cl_map`)
-- the repo is large or unfamiliar, or you'd otherwise grep + read many files
-- branch-scoped correctness matters (results won't leak across branches)
+Call `cl_current` when index readiness is uncertain. Installed MCP configs
+background-index missing branches; if `status` is `indexing`, wait or retry and
+use `indexingStartedAt`/`indexingAgeMs` to judge whether it looks stuck. If
+`status` remains `missing`, call `cl_refresh` explicitly.
 
-Then use `cl_expand` to read the exact current content of a chosen target (it
-reads from disk — never stale), and `cl_save`/`cl_load` to persist working
-context across compaction. If a query result has `stale:true`, read that file
-from disk before relying on indexed snippets/edges.
+If a query result has `stale:true` or `freshness:"partial"`, read that file from
+disk before relying on indexed snippets/edges.
 
 If `cl_current.inGitRepo` is false or `repo` points outside the current
 workspace, CodeLens is not attached to this workspace. Tell the user to restart
@@ -41,9 +44,9 @@ not silently fall back to raw `find`/`grep` for discovery.
 - you're **verifying** exact code, logs, or user-supplied paths
 - the user explicitly asks for raw command output
 
-The routing is about **discovery**, not a ban on raw reads. Don't force codelens
-for a known exact lookup; don't fall back to bulk grep when you don't know what
-you're looking for.
+The routing is about **discovery**, not a ban on raw reads. Do not start with
+broad `grep`, `find`, or bulk `read` when the target is unknown or the question
+concerns relationships. Do not force codelens for a known exact lookup either.
 
 ## Branch safety
 

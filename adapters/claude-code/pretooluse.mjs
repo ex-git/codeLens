@@ -24,8 +24,9 @@ try {
     // additionalContext is surfaced to the model in Claude Code.
     console.log(JSON.stringify({
       additionalContext:
-        "Tip: for code discovery prefer codelens tools (cl_explore/cl_search → cl_related/cl_impact → cl_expand) " +
-        "to keep context lean. Raw grep/read are still fine for exact edits/verification; read stale:true files directly.",
+        "Tip: choose codelens by intent: cl_explore for unknown flows, cl_search to locate code, " +
+        "cl_related/cl_impact for relationships or blast radius, then cl_expand for exact code. " +
+        "Raw grep/read remain appropriate for known exact strings, logs, edits, and verification.",
     }));
   }
 } catch { /* never break the agent on a hook error */ }

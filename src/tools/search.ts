@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { getActiveIndexId, touchIndex, requireActiveIndex } from "../index/manager.js";
 import { extractSnippet, headlineSnippet } from "../search/snippet.js";
-import { rank, normalize, type SignalScore } from "../search/rank.js";
+import { DEFAULT_WEIGHTS, rank, normalize, type SignalScore } from "../search/rank.js";
 import { neighbors, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
 import { getPendingPaths, markStale } from "../index/staleness.js";
@@ -43,6 +43,7 @@ export interface SearchResult {
 const DEFAULT_LIMIT = 5;
 
 export type SnippetMode = "none" | "headline" | "compact" | "full";
+export type SearchWeights = typeof DEFAULT_WEIGHTS;
 /** Ranks below this (0-indexed) keep a richer preview when no mode is forced. */
 const RICH_PREVIEW_TOP_N = 3;
 
@@ -176,7 +177,7 @@ function prelude(db: Database.Database, opts?: { scope?: GitScope; refreshBudget
 export function ctxSearch(
   db: Database.Database,
   query: string,
-  opts?: { limit?: number; cursor?: string; scope?: GitScope; refreshBudgetMs?: number; contentType?: "code" | "prose"; related?: boolean; snippet?: SnippetMode },
+  opts?: { limit?: number; cursor?: string; scope?: GitScope; refreshBudgetMs?: number; contentType?: "code" | "prose"; related?: boolean; snippet?: SnippetMode; weights?: SearchWeights },
 ): SearchResult {
   const indexId = requireActiveIndex(db);
   touchIndex(db, indexId);
@@ -191,7 +192,7 @@ export function ctxSearch(
   }
   const ftsRows = gatherFts(db, indexId, fts, limit * 4, opts?.contentType);
   const signals = buildSignals(db, indexId, query, ftsRows);
-  const ranked = rank(signals);
+  const ranked = rank(signals, opts?.weights);
   const page = ranked.slice(offset, offset + limit);
   const hasMore = offset + limit < ranked.length;
   const byChunk = new Map(ftsRows.map((r) => [r.chunkId, r]));

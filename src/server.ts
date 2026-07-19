@@ -69,7 +69,7 @@ function repoRootFromCwd(cwd?: string): string {
   return resolveCwd(cwd);
 }
 
-const CLI_COMMANDS = new Set(["current","index","refresh","search","related","stats","usage","doctor","install","uninstall","upgrade","version","--print-config","-v","--version","--help","-h"]);
+const CLI_COMMANDS = new Set(["current","index","refresh","search","related","stats","usage","doctor","eval","install","uninstall","upgrade","version","--print-config","-v","--version","--help","-h"]);
 
 interface RuntimeController {
   ctx: ServerContext;

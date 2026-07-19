@@ -108,6 +108,18 @@ describe("ctxSearch", () => {
     db.close();
   });
 
+  it("accepts internal ranking weights for evaluator ablations", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxSearch(db, "validate session", {
+      limit: 5,
+      snippet: "none",
+      weights: { fts: 1, symbol: 0, graph: 0, code: 0, pathHit: 0, exact: 0, recency: 0 },
+    });
+    expect(r.results.map((item) => item.path)).toContain("src/auth/session.ts");
+    db.close();
+  });
+
   it("throws when no active index", () => {
     const db = openMemoryDb();
     expect(() => ctxSearch(db, "x")).toThrow(/no active index/);

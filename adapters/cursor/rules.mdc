@@ -6,27 +6,25 @@ alwaysApply: true
 
 # CodeLens routing
 
-For codebase discovery, do NOT start with `grep`/`find`/`read`. Use the
-codelens MCP tools first:
+Use the branch-scoped codelens MCP tools for code discovery before broad raw
+searches or bulk file reads. Choose by intent:
 
-1. `cl_current` — check index readiness for the current branch.
-2. `cl_explore` — broad orientation in one call (grouped previews + relationships).
-3. `cl_search` — find relevant files/symbols by intent when you only need handles.
-4. `cl_related` — expand tests/callers/imports from a known file.
-5. `cl_impact` — inspect callers/callees/affected tests before editing shared code.
-6. `cl_expand` — read exact current file content for a chosen target.
+- Unknown area, conceptual question, or execution flow: start with `cl_explore`.
+- Find a symbol, behavior, or likely implementation location: use ranked hybrid `cl_search`.
+- Find callers, importers, tests, or dependencies of a known file: use `cl_related`.
+- Assess blast radius before changing shared code: use `cl_impact`. Pass
+  `symbol` + `path` when known; pass `path` alone when the symbol is uncertain.
+- Get a cheap structural outline: use `cl_map`.
+- Read exact current code after choosing a target: use `cl_expand` or a raw read.
 
-Raw reads are still allowed for **editing** exact files and **verifying**
-exact code. The routing is about discovery: prefer indexed context over bulk
-file dumps to keep the context window lean.
+Do not start with broad `grep`, `find`, or bulk `read` when the target is unknown
+or the question concerns relationships. Raw tools remain appropriate for known
+exact strings/paths, logs/generated output, and exact verification or editing.
 
-Results are scoped to the current branch index only. If a result has `stale:true`
-or `freshness:"partial"`, read that file directly before relying on indexed
-snippets/edges. If `cl_current.inGitRepo` is false or the repo path is not this
-workspace, tell the user to restart the IDE after upgrading (the global Cursor
-config attaches via `${workspaceFolder}`) or re-run `codelens install --target
-cursor --yes`; do not silently fall back to raw `find`/`grep`. After
-`git checkout`, call `cl_current` again; the new branch index activates
-automatically.
+Call `cl_current` when index readiness is uncertain and after `git checkout`.
+If a result has `stale:true` or `freshness:"partial"`, read the target directly
+before relying on it. If CodeLens is not attached to this workspace, tell the
+user or re-run `codelens install --target cursor --yes`; do not silently fall
+back to broad raw discovery.
 
 See `docs/routing.md` for full instructions.

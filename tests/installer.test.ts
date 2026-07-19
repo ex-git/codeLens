@@ -228,9 +228,11 @@ describe("installer: cursor routing rule (.mdc)", () => {
     const p = join(fakeHome, ".cursor", "rules", "codelens.mdc");
     const content = readFileSync(p, "utf-8");
     expect(content).toContain("alwaysApply: true");
-    expect(content).toContain("cl_explore");
-    expect(content).toContain("cl_impact");
-    expect(content).toContain("cl_current.inGitRepo");
+    expect(content).toContain("Unknown area, conceptual question, or execution flow");
+    expect(content).toContain("ranked hybrid `cl_search`");
+    expect(content).toContain("pass `path` alone for module/file");
+    expect(content).toContain("exact string/path is already known");
+    expect(content).toContain("stale:true");
   });
   it("reinstall is idempotent (already=true)", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["cursor"], instructions: true });
@@ -251,8 +253,9 @@ describe("installer: codex routing (AGENTS.md)", () => {
     const p = join(fakeHome, ".codex", "AGENTS.md");
     const content = readFileSync(p, "utf-8");
     expect(content).toContain(INSTRUCTIONS_START);
-    expect(content).toContain("cl_explore");
-    expect(content).toContain("cl_impact");
+    expect(content).toContain("Unknown area, conceptual question, or execution flow");
+    expect(content).toContain("ranked hybrid `cl_search`");
+    expect(content).toContain("pass `path` alone for module/file");
   });
   it("uninstall removes the block", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["codex"], instructions: true });

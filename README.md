@@ -203,7 +203,87 @@ codelens search "session validation"   # ranked search
 codelens related src/auth/session.ts    # graph neighbors
 codelens stats           # index counts
 codelens current         # repo/branch status
+codelens eval .          # automatic repository evaluation + scorecard
 ```
+
+## Evaluate CodeLens on any repository
+
+Run one command against a Git repository:
+
+```bash
+codelens eval /path/to/repo
+```
+
+The evaluator inventories the repository, creates deterministic tasks from
+symbol locations, file/module caller and test relationships, and usable Git
+history. It then compares four retrieval arms: full CodeLens, lexical ranking
+without graph weight, FTS-only ranking, and a targeted `rg` baseline. The
+default comprehensive run evaluates 500-file,
+2000-file, and all-file tiers (deduplicated for smaller repositories), applies
+quality thresholds, and verifies edit/delete freshness in a detached temporary
+Git worktree. Large repositories can take several minutes because every tier
+builds a fresh index and the freshness probe builds a separate worktree index.
+Phase, file, retrieval, freshness, report, and failure progress is printed to
+stderr with elapsed time throughout the run.
+
+It prints a scorecard and writes reproducible artifacts outside the target
+repository under `~/.codelens/evals/`:
+
+```text
+results.json   # complete measurements and pass/fail evidence
+report.md      # human-readable scorecard
+tasks.json     # generated tasks, labels, origins, and confidence
+```
+
+Useful modes:
+
+```bash
+codelens eval . --quick                       # 20 tasks, up to 500 files, no freshness probe
+codelens eval . --tasks 200 --repeats 3       # broader repeated run
+codelens eval . --scales 1000,5000,all        # custom deterministic tiers
+codelens eval . --seed 42 --output /tmp/eval  # reproducible custom output
+codelens eval . --no-freshness                # skip temporary-worktree mutation test
+codelens eval . --json                        # JSON on stdout; progress remains on stderr
+```
+
+For a bounded diagnostic on a large repository, use `--quick` or explicitly
+choose a tier such as `--scales 500 --tasks 20 --no-freshness`. Use the default
+run when you want comprehensive scale and freshness measurements.
+
+The target worktree is treated as read-only. Freshness mutations occur only in
+a detached temporary worktree, which is removed even after errors, and output
+paths inside the target repository are rejected. Exit code `0` means configured
+thresholds passed, `2` means evaluation completed but thresholds failed, and
+`1` means the evaluator could not run.
+
+This is a deterministic retrieval/graph/freshness evaluation, not an end-to-end
+LLM benchmark. Relationship tasks use file-level graph edges and path-derived
+module labels; automatically generated labels remain high-confidence proxies
+and may not represent every valid implementation location.
+
+## Representative retrieval evaluation
+
+On an anonymized 3,747-file monorepo containing 31,701 indexed chunks,
+`codelens eval` generated 100 deterministic locate, caller, test, and Git-history
+tasks across 500-file, 2,000-file, and all-file tiers using the default seed and
+result limit. The all-file tier contained 33 tasks:
+
+| Retrieval arm | Recall@10 | MRR | Success |
+|---|---:|---:|---:|
+| Full CodeLens | **80.3%** | **0.801** | **90.9%** |
+| Lexical ranking | 48.0% | 0.453 | 57.6% |
+| FTS-only | 51.5% | 0.458 | 60.6% |
+| Targeted `rg` | 41.2% | 0.233 | 48.5% |
+
+The full CodeLens arm—including ranked search plus graph-aware caller, test, and
+impact retrieval—substantially outperformed lexical ranking, FTS-only retrieval,
+and targeted `rg` in this run. The detached-worktree edit/delete freshness probe
+also passed.
+
+These results are representative, not universal. Automatically generated labels
+are proxies, performance varies by repository, and this evaluation does not run
+or grade an LLM. Run `codelens eval <repo>` to measure behavior on your own
+codebase.
 
 ## Development
 

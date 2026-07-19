@@ -5,6 +5,22 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-18
+
+### Added
+- Added `codelens eval <repo>`, a deterministic one-command repository evaluator that generates locate, caller, test, and Git-history tasks and compares full CodeLens with lexical, FTS-only, and targeted `rg` retrieval across configurable scale tiers, repeats, and thresholds.
+- Added console, JSON, Markdown, and generated-task scorecards under `~/.codelens/evals/`, with bounded quick mode, JSON/stdout separation, elapsed phase progress on stderr, and phase-specific execution errors.
+- Added detached-worktree edit/delete freshness evaluation with regular-file containment checks, symlink-safe writes, and verified Git worktree cleanup; the target worktree and default report location remain read-only/outside the evaluated repository.
+
+### Changed
+- Improved managed LLM routing and native adapter guidance so agents choose `cl_explore`, `cl_search`, `cl_related`, `cl_impact`, `cl_map`, and `cl_expand` by task intent while preserving raw-tool exceptions for known exact strings, logs, editing, and verification.
+- Documented path-only `cl_impact` for module/file analysis when a symbol is uncertain, and replaced inaccurate semantic-search wording with ranked hybrid search terminology.
+- Added a qualified anonymized representative evaluation to the README; raw reports and private repository metadata are not committed.
+
+### Fixed
+- Corrected evaluator caller/test tasks to use path-derived module labels and path-based impact traversal that matches file-level graph ground truth, eliminating ambiguous fallback targets such as `index`.
+- Bounded `--quick` to at most 500 files and added continuous indexing/retrieval/freshness progress so large evaluations no longer appear stalled.
+
 ## [2.4.1] - 2026-07-17
 
 ### Fixed

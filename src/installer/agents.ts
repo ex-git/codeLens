@@ -85,27 +85,34 @@ const CODEX_START = `# codelens routing start (managed by \`codelens install\`)`
 const CODEX_END = `# codelens routing end`;
 const INSTRUCTIONS_BODY = `# CodeLens routing
 
-Prefer the codelens MCP tools (\`cl_search\`, \`cl_explore\`, \`cl_related\`,
-\`cl_impact\`, \`cl_expand\`, \`cl_map\`, \`cl_save\`, \`cl_load\`) for code
-discovery — they keep context lean and are branch-scoped.
+Use the branch-scoped codelens MCP tools for code discovery before broad raw
+searches or bulk file reads. Choose the tool by intent:
 
-Use codelens when:
-- you don't know the exact name/string (semantic or conceptual search via \`cl_search\`)
-- you need broad orientation in one call (\`cl_explore\`)
-- you need relationships (importers, tests, callers), blast radius before edits (\`cl_impact\`), or a per-file outline (\`cl_map\`)
-- the repo is large or unfamiliar, or you'd otherwise grep + read many files
+- Unknown area, conceptual question, or execution flow: start with \`cl_explore\`.
+- Find a symbol, behavior, or likely implementation location: use ranked hybrid \`cl_search\`.
+- Find callers, importers, tests, or dependencies of a known file: use \`cl_related\`.
+- Assess blast radius before changing shared code: use \`cl_impact\`. Pass
+  \`symbol\` + \`path\` when both are known; pass \`path\` alone for module/file
+  impact when the symbol is uncertain.
+- Get a cheap structural outline without reading whole files: use \`cl_map\`.
+- Read exact current code after choosing a target: use \`cl_expand\` or a raw read.
+- Persist important working context across compaction with \`cl_save\`/\`cl_load\`.
 
-Raw \`grep\`/\`find\`/\`read\` is fine when:
-- you already know an exact string/symbol/path
-- you're reading or editing a single known file
-- the repo is tiny or familiar
+Do not start with broad \`grep\`, \`find\`, or bulk \`read\` when the target is
+unknown or the question concerns relationships. Raw tools are appropriate when
+the exact string/path is already known, for logs/generated output, or for exact
+verification and editing.
 
-If a result has \`stale:true\` or \`freshness:"partial"\`, read that file directly before relying on indexed snippets/edges.
-If \`cl_current.inGitRepo\` is false or the repo path is not this workspace, CodeLens isn't attached: tell the user to restart the IDE after upgrading (the global Cursor config attaches via \`\${workspaceFolder}\`), or run \`codelens install --target cursor --yes\`; do not silently fall back to raw find/grep.
-Always use \`cl_expand\` or a raw read for the exact file you're about to edit.
-If \`cl_current.status === "indexing"\`, wait/retry shortly; use \`indexingStartedAt\`/\`indexingAgeMs\` to decide if it looks stuck. Call \`cl_refresh\` when status remains \`missing\`, freshness is partial/stale and relationships matter, or the user asks for a rebuild. \`cl_refresh\` itself returns \`status:"indexing"\` instead of duplicating an active background index.
-Results are scoped to the current branch; call \`cl_current\` after a
-\`git checkout\`. See \`docs/routing.md\`. Remove with: \`codelens uninstall\`.`;
+Call \`cl_current\` when index readiness is uncertain. If status is \`indexing\`,
+wait/retry shortly; call \`cl_refresh\` only when status remains \`missing\`,
+relationships must reflect large recent changes, or the user requests a rebuild.
+If a result has \`stale:true\` or \`freshness:"partial"\`, read the target directly
+before relying on it. If CodeLens is not attached to this workspace, tell the
+user instead of silently falling back to broad raw discovery.
+
+Results are scoped to the current branch; call \`cl_current\` after \`git checkout\`.
+Always inspect exact current content before editing. See \`docs/routing.md\`.
+Remove managed routing with \`codelens uninstall\`.`;
 
 // ── JSON helpers ──────────────────────────────────────────────
 

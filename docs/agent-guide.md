@@ -49,11 +49,18 @@ End-to-end workflow for a coding agent using codelens.
 
 ## Tool choice
 
-- Use `cl_explore` for broad questions: "how does X work?", "show the flow around Y", or surveying an unfamiliar area. It combines search, compact source previews, and relationships in one call.
-- Use `cl_search` when you need ranked handles/locations.
-- Use `cl_related` to expand from a known file.
-- Use `cl_impact` before editing shared code to see callers/callees/affected tests.
-- Use `cl_expand` (or raw read) for exact current file content before editing.
+Choose by intent rather than calling every tool in sequence:
+
+- Unknown area, conceptual question, or execution flow: start with `cl_explore`.
+- Find a symbol, behavior, or likely implementation location: use ranked hybrid `cl_search`.
+- Find callers, importers, tests, or dependencies of a known file: use `cl_related`.
+- Assess blast radius before editing shared code: use `cl_impact`. Pass `symbol` + `path` when both are known; pass `path` alone for module/file impact when the symbol is uncertain.
+- Get a cheap structural outline without reading whole files: use `cl_map`.
+- Inspect exact current content after choosing the target: use `cl_expand` or a raw read.
+
+Do not start with broad `grep`, `find`, or bulk reads when the target is unknown
+or the question concerns relationships. Raw tools remain appropriate for known
+exact strings/paths, logs/generated output, and exact verification or editing.
 
 ## Branch switch
 
