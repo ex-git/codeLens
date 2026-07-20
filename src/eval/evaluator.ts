@@ -275,7 +275,9 @@ export function runRepositoryEval(input: EvalOptions): EvalResult {
     }
     const thresholdFailures = scales.flatMap((scale) => thresholdFailuresFor(scale, input));
     for (const scale of scales) {
-      const executionErrors = new Set(scale.runs.filter((run) => run.error).map((run) => `${run.arm}: ${run.error}`));
+      const executionErrors = new Set(scale.runs
+        .filter((run) => run.error && !(run.arm === "rg" && run.error === "ripgrep is not installed"))
+        .map((run) => `${run.arm}: ${run.error}`));
       for (const error of executionErrors) thresholdFailures.push(`${scale.label}: evaluation arm error — ${error}`);
     }
     if (suites.includes("freshness") && freshness.attempted && !freshness.passed) thresholdFailures.push("Freshness edit/delete probe failed.");

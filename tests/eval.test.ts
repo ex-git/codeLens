@@ -233,7 +233,12 @@ describe("repository evaluator v2", () => {
     const onlySession = runRgBaseline(repo, task, 10, ["src/auth/session.ts"]);
     const withWidget = runRgBaseline(repo, task, 10, ["src/auth/session.ts", "src/widgets/index.ts"]);
     expect(onlySession.foundPaths).toEqual([]);
-    expect(withWidget.foundPaths).toEqual(["src/widgets/index.ts"]);
+    if (onlySession.error === "ripgrep is not installed") {
+      expect(withWidget).toMatchObject({ foundPaths: [], error: "ripgrep is not installed" });
+    } else {
+      expect(onlySession.error).toBeUndefined();
+      expect(withWidget.foundPaths).toEqual(["src/widgets/index.ts"]);
+    }
   });
 
   it("counterbalances arm order and treats repeats as timing samples", () => {

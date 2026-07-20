@@ -13,7 +13,7 @@ All notable changes to this project are documented here. This project follows
 - Replaced the README's biased representative superiority claim with qualified retrieval-layer observations, explicit graph-weighting uncertainty, and the requirement for controlled agent A/B tests before making LLM speed, accuracy, token, cost, or patch-quality claims.
 
 ### Fixed
-- Restricted the `rg` baseline to the same selected inventory as CodeLens, removed misleading physical-I/O accounting, made lexical ranking a pure graph-weight ablation, counterbalanced retrieval arms by task type after discarded warmups, and excluded low-confidence Git-history tasks from pass/fail thresholds.
+- Restricted the `rg` baseline to the same selected inventory as CodeLens, kept a missing optional `rg` executable as explicitly skipped coverage instead of a failed CodeLens threshold, removed misleading physical-I/O accounting, made lexical ranking a pure graph-weight ablation, counterbalanced retrieval arms by task type after discarded warmups, and excluded low-confidence Git-history tasks from pass/fail thresholds.
 - Stopped mixing known-target graph traversal with query-only text retrieval in one aggregate score, prevented self-generated graph labels from gating results, and deduplicated paged chunk results into comparable file-level rankings.
 
 ## [2.5.0] - 2026-07-18
