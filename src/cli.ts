@@ -20,7 +20,7 @@ import { checkUpgrade, performUpgrade } from "./upgrade.js";
 import { parseCwdArg, resolveCwd } from "./runtime/root.js";
 import { defaultEvalOptions, quickEvalOptions, runRepositoryEval } from "./eval/evaluator.js";
 import { consoleSummary } from "./eval/report.js";
-import type { EvalOptions, EvalProgressEvent } from "./eval/types.js";
+import type { EvalOptions, EvalProgressEvent, EvalSuiteName } from "./eval/types.js";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -234,25 +234,28 @@ function defaultServerCommand(): string | null {
 
 const EVAL_HELP = `codelens eval [repo] [options]
 
-Automatically generate retrieval tasks, compare CodeLens with ranking ablations
-and a targeted rg baseline, validate freshness safely, and write scorecards.
+Run fair query-only retrieval, separate graph accuracy/self-consistency, and
+safe freshness suites. Automatic tasks are labeled as self-evaluation.
 
 Options:
-  --quick                  20 tasks, up to 500 files, no freshness probe
-  --tasks <n>              Maximum generated tasks across scales (default 100)
-  --seed <n>               Deterministic sampling seed (default 42)
-  --repeats <n>            Repeat every task/arm (default 1)
+  --quick                  20 tasks, up to 500 files, retrieval+graph only
+  --tasks <n>              Maximum automatic tasks frozen across scales (default 100)
+  --tasks-file <path>      Versioned frozen task JSON for independent evaluation
+  --suite <list>           retrieval,graph,freshness (default all)
+  --seed <n>               Deterministic sampling/bootstrap seed (default 42)
+  --repeats <n>            Timing repetitions per unique task (default 1)
   --limit <n>              Results considered per task (default 10)
-  --scales <list>          Comma list such as 500,2000,all
+  --scales <list>          Nested tiers such as 500,2000,all
   --output <dir>           Report directory; must be outside the target repo
-  --no-freshness           Skip detached-worktree edit/delete probes
-  --min-recall <0..1>      Full-arm recall threshold (default 0.6)
-  --min-mrr <0..1>         Full-arm MRR threshold (default 0.5)
-  --min-success <0..1>     Full-arm success threshold (default 0.7)
-  --json                    Print the complete JSON result
+  --no-freshness           Remove freshness from the selected suites
+  --min-recall <0..1>      Eligible retrieval/graph recall threshold (default 0.6)
+  --min-mrr <0..1>         Eligible retrieval MRR threshold (default 0.5)
+  --min-success <0..1>     Eligible retrieval/graph success threshold (default 0.7)
+  --min-graph-precision <0..1>  Independent graph precision threshold (default 0.5)
+  --json                    Print complete JSON on stdout (progress stays stderr)
   --help                    Show this help`;
 
-const EVAL_VALUE_OPTIONS = new Set(["--tasks", "--seed", "--repeats", "--limit", "--scales", "--output", "--min-recall", "--min-mrr", "--min-success"]);
+const EVAL_VALUE_OPTIONS = new Set(["--tasks", "--tasks-file", "--suite", "--seed", "--repeats", "--limit", "--scales", "--output", "--min-recall", "--min-mrr", "--min-success", "--min-graph-precision"]);
 
 function parseEvalArgs(args: string[], fallbackRepo: string): { options: EvalOptions; json: boolean; help: boolean } {
   const positional = findEvalRepoArg(args);
@@ -269,8 +272,10 @@ function parseEvalArgs(args: string[], fallbackRepo: string): { options: EvalOpt
     if (key === "--quick") continue;
     if (key === "--json") { json = true; continue; }
     if (key === "--help" || key === "-h") { help = true; continue; }
-    if (key === "--no-freshness") { options.freshness = false; continue; }
+    if (key === "--no-freshness") { options.suites = options.suites.filter((suite) => suite !== "freshness"); continue; }
     if (key === "--tasks") { options.taskLimit = boundedPositiveInt(value, key, 10_000); continue; }
+    if (key === "--tasks-file") { if (!value) throw new Error("--tasks-file requires a path"); options.taskFile = resolve(value); continue; }
+    if (key === "--suite") { options.suites = parseSuites(value); continue; }
     if (key === "--seed") { options.seed = integer(value, key); continue; }
     if (key === "--repeats") { options.repeats = boundedPositiveInt(value, key, 100); continue; }
     if (key === "--limit") { options.resultLimit = boundedPositiveInt(value, key, 1_000); continue; }
@@ -279,6 +284,7 @@ function parseEvalArgs(args: string[], fallbackRepo: string): { options: EvalOpt
     if (key === "--min-recall") { options.thresholds.minRecallAtK = ratio(value, key); continue; }
     if (key === "--min-mrr") { options.thresholds.minMrr = ratio(value, key); continue; }
     if (key === "--min-success") { options.thresholds.minSuccessRate = ratio(value, key); continue; }
+    if (key === "--min-graph-precision") { options.thresholds.minGraphPrecision = ratio(value, key); continue; }
     if (arg.startsWith("-")) throw new Error(`unknown eval option: ${arg}`);
     throw new Error(`unexpected eval argument: ${arg}`);
   }
@@ -296,6 +302,18 @@ function findEvalRepoArg(args: string[]): { value: string; index: number } | und
     return { value: arg, index: i };
   }
   return undefined;
+}
+
+function parseSuites(value: string | undefined): EvalSuiteName[] {
+  if (!value) throw new Error("--suite requires a comma-separated list");
+  const suites = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  for (const suite of suites) {
+    if (suite !== "retrieval" && suite !== "graph" && suite !== "freshness") {
+      throw new Error(`--suite contains unknown suite: ${suite}`);
+    }
+  }
+  if (suites.length === 0) throw new Error("--suite requires at least one suite");
+  return suites as EvalSuiteName[];
 }
 
 function parseScales(value: string | undefined): Array<number | "all"> {

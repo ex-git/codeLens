@@ -5,6 +5,17 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-07-20
+
+### Changed
+- Redesigned repository evaluation artifacts as schema v2 with separate retrieval, graph, and freshness suites. Query-only retrieval arms now receive identical inputs/corpora and file-level top-K units, scale tiers are nested around one fixed task set, repeats are timing samples, and metrics report unique-task bootstrap confidence intervals by task type.
+- Added validated `--tasks-file` support for frozen reviewed labels, stable task-set digests, `--suite retrieval,graph,freshness` selection, and independently labeled graph precision thresholds. Automatic tasks are explicitly labeled as CodeLens self-evaluation; graph labels derived from the evaluated index are reported only as self-consistency.
+- Replaced the README's biased representative superiority claim with qualified retrieval-layer observations, explicit graph-weighting uncertainty, and the requirement for controlled agent A/B tests before making LLM speed, accuracy, token, cost, or patch-quality claims.
+
+### Fixed
+- Restricted the `rg` baseline to the same selected inventory as CodeLens, removed misleading physical-I/O accounting, made lexical ranking a pure graph-weight ablation, counterbalanced retrieval arms by task type after discarded warmups, and excluded low-confidence Git-history tasks from pass/fail thresholds.
+- Stopped mixing known-target graph traversal with query-only text retrieval in one aggregate score, prevented self-generated graph labels from gating results, and deduplicated paged chunk results into comparable file-level rankings.
+
 ## [2.5.0] - 2026-07-18
 
 ### Added

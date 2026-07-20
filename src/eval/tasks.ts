@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { basename, extname } from "node:path";
 import type Database from "better-sqlite3";
 import { splitIdentifiers } from "../search/identifiers.js";
-import type { EvalTask, EvalTaskType } from "./types.js";
+import type { EvalSuiteName, EvalTask, EvalTaskType } from "./types.js";
 
 interface SymbolRow {
   name: string;
@@ -28,6 +28,7 @@ export function generateEvalTasks(
   inventory: string[],
   limit: number,
   seed: number,
+  suites: EvalSuiteName[],
 ): EvalTask[] {
   const knownFiles = new Set(inventory);
   const symbols = db.prepare(
@@ -38,15 +39,15 @@ export function generateEvalTasks(
   ).all(indexId) as SymbolRow[];
 
   const buckets: Record<EvalTaskType, EvalTask[]> = {
-    locate: locateTasks(symbols),
-    callers: relationshipTasks(db, indexId, "callers"),
-    tests: relationshipTasks(db, indexId, "tests"),
-    history: historyTasks(repoRoot, knownFiles),
+    locate: suites.includes("retrieval") ? locateTasks(symbols) : [],
+    history: suites.includes("retrieval") ? historyTasks(repoRoot, knownFiles) : [],
+    callers: suites.includes("graph") ? relationshipTasks(db, indexId, "callers") : [],
+    tests: suites.includes("graph") ? relationshipTasks(db, indexId, "tests") : [],
   };
-
-  const types: EvalTaskType[] = ["locate", "callers", "tests", "history"];
+  const types = (["locate", "callers", "tests", "history"] as EvalTaskType[]).filter((type) => buckets[type].length > 0);
   for (let i = 0; i < types.length; i++) {
-    buckets[types[i]!] = seededShuffle(buckets[types[i]!]!, seed + i * 9973);
+    const type = types[i]!;
+    buckets[type] = seededShuffle(buckets[type], seed + i * 9973);
   }
 
   const selected: EvalTask[] = [];
@@ -70,7 +71,7 @@ function locateTasks(symbols: SymbolRow[]): EvalTask[] {
   const seen = new Set<string>();
   const tasks: EvalTask[] = [];
   for (const row of symbols) {
-    if (!row.exported) continue;
+    if (!row.exported || isGeneratedPath(row.path)) continue;
     const query = symbolQuery(row.name, row.path);
     if (!query || query.toLowerCase() === row.name.toLowerCase()) continue;
     const key = `${query}\0${row.path}`;
@@ -78,23 +79,21 @@ function locateTasks(symbols: SymbolRow[]): EvalTask[] {
     seen.add(key);
     tasks.push({
       id: taskId("locate", query, [row.path]),
+      suite: "retrieval",
       type: "locate",
       query,
       expectedPaths: [row.path],
       confidence: 1,
+      contributesToThresholds: true,
       symbol: row.name,
-      sourcePath: row.path,
       origin: `exported ${row.kind}`,
+      groundTruth: { kind: "auto-index", independent: false },
     });
   }
   return tasks;
 }
 
-function relationshipTasks(
-  db: Database.Database,
-  indexId: string,
-  type: "callers" | "tests",
-): EvalTask[] {
+function relationshipTasks(db: Database.Database, indexId: string, type: "callers" | "tests"): EvalTask[] {
   const edgeTypes = type === "callers" ? ["imports", "calls", "references"] : ["tests"];
   const placeholders = edgeTypes.map(() => "?").join(",");
   const rows = db.prepare(
@@ -113,19 +112,22 @@ function relationshipTasks(
     paths.add(row.fromPath);
   }
   const tasks: EvalTask[] = [];
-  for (const [target, expected] of expectedByTarget) {
-    const paths = [...expected].sort();
-    if (paths.length === 0) continue;
-    const module = moduleSubject(target);
+  for (const [targetPath, expected] of expectedByTarget) {
+    const expectedPaths = [...expected].sort();
+    if (expectedPaths.length === 0) continue;
+    const module = moduleSubject(targetPath);
     const query = type === "tests" ? `tests for ${module}` : `callers of ${module}`;
     tasks.push({
-      id: taskId(type, query, paths),
+      id: taskId(type, query, expectedPaths),
+      suite: "graph",
       type,
       query,
-      expectedPaths: paths.slice(0, 20),
+      targetPath,
+      expectedPaths: expectedPaths.slice(0, 20),
       confidence: type === "tests" ? 0.9 : 0.85,
-      sourcePath: target,
-      origin: type === "tests" ? "direct file tests edge" : "direct file import/call/reference edge",
+      contributesToThresholds: false,
+      origin: type === "tests" ? "CodeLens file tests edge" : "CodeLens file import/call/reference edge",
+      groundTruth: { kind: "auto-index", independent: false },
     });
   }
   return tasks;
@@ -148,15 +150,18 @@ function historyTasks(repoRoot: string, knownFiles: Set<string>): EvalTask[] {
     const sha = header.slice(0, tab);
     const subject = header.slice(tab + 1).trim();
     if (!usableHistorySubject(subject)) continue;
-    const expected = [...new Set(lines.filter((path) => knownFiles.has(path)))].slice(0, 12);
-    if (expected.length === 0 || expected.some((path) => subject.toLowerCase().includes(basename(path).toLowerCase()))) continue;
+    const expectedPaths = [...new Set(lines.filter((path) => knownFiles.has(path)))].slice(0, 12);
+    if (expectedPaths.length === 0 || expectedPaths.some((path) => subject.toLowerCase().includes(basename(path).toLowerCase()))) continue;
     tasks.push({
-      id: taskId("history", subject, expected),
+      id: taskId("history", subject, expectedPaths),
+      suite: "retrieval",
       type: "history",
       query: subject,
-      expectedPaths: expected,
+      expectedPaths,
       confidence: 0.7,
+      contributesToThresholds: false,
       origin: `git commit ${sha.slice(0, 12)}`,
+      groundTruth: { kind: "git-history", independent: true },
     });
   }
   return tasks;
@@ -173,7 +178,7 @@ function symbolQuery(name: string, path: string): string {
   if (parts.length >= 2) return parts.slice(0, 4).join(" ");
   const pathParts = fileStem(path).split(/[^a-z0-9]+/i).filter((part) => part.length >= 3);
   const combined = [...new Set([...parts, ...pathParts])].filter((part) => !QUERY_STOP_WORDS.has(part.toLowerCase()));
-  return combined.slice(0, 4).join(" ");
+  return combined.length >= 2 ? combined.slice(0, 4).join(" ") : "";
 }
 
 function humanize(value: string): string {
@@ -186,9 +191,7 @@ function moduleSubject(path: string): string {
   const leaf = fileStem(parts.at(-1) ?? path);
   const directories = parts.slice(0, -1).reverse().map((part) => fileStem(part));
   const context = directories.find((part) => !CONTAINER_DIRECTORIES.has(part.toLowerCase())) ?? directories[0];
-  const raw = GENERIC_MODULE_STEMS.has(leaf.toLowerCase())
-    ? (context ?? leaf)
-    : [context, leaf].filter(Boolean).join(" ");
+  const raw = GENERIC_MODULE_STEMS.has(leaf.toLowerCase()) ? (context ?? leaf) : [context, leaf].filter(Boolean).join(" ");
   const tokens = raw.split(/[^A-Za-z0-9_]+/).filter(Boolean).flatMap((part) => {
     const split = splitIdentifiers(part, { minTokenLength: 2, maxTokens: 8 });
     return split.length > 0 ? split : [part.toLowerCase()];
@@ -201,6 +204,10 @@ function fileStem(path: string): string {
   const base = basename(path);
   const ext = extname(base);
   return (ext ? base.slice(0, -ext.length) : base).replace(/[._-]+/g, " ");
+}
+
+function isGeneratedPath(path: string): boolean {
+  return /(^|\/)(generated|vendor)(\/|$)/i.test(path) || /\.(generated|gen)\.[^.]+$/i.test(path);
 }
 
 function taskId(type: string, query: string, paths: string[]): string {

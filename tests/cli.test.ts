@@ -138,7 +138,7 @@ describe("cli", () => {
         "--min-recall", "0", "--min-mrr", "0", "--min-success", "0",
       ]);
       expect(code).toBe(0);
-      expect(JSON.parse(stdout.join("\n")).version).toBe(1);
+      expect(JSON.parse(stdout.join("\n")).version).toBe(2);
       expect(stderr.some((line) => line.includes("START") && line.includes("scan:"))).toBe(true);
       expect(stderr.some((line) => line.includes("PROGRESS") && line.includes("index:"))).toBe(true);
       expect(stderr.some((line) => line.includes("COMPLETE") && line.includes("evaluation:"))).toBe(true);
@@ -146,6 +146,36 @@ describe("cli", () => {
       logSpy.mockRestore();
       errorSpy.mockRestore();
       rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it("eval accepts frozen task files and suite selection", async () => {
+    const temp = mkdtempSync(join(tmpdir(), "ce-cli-eval-frozen-"));
+    const output = join(temp, "output");
+    const tasks = join(temp, "tasks.json");
+    writeFileSync(tasks, JSON.stringify({
+      version: 1,
+      source: "cli fixture",
+      independentGroundTruth: true,
+      tasks: [{
+        id: "locate-a",
+        suite: "retrieval",
+        type: "locate",
+        query: "validate session",
+        expectedPaths: ["src/a.ts"],
+      }],
+    }));
+    try {
+      const code = await cli([
+        "eval", repo, "--quick", "--tasks-file", tasks, "--suite", "retrieval", "--output", output,
+        "--min-recall", "0", "--min-mrr", "0", "--min-success", "0",
+      ]);
+      expect(code).toBe(0);
+      const result = JSON.parse(readFileSync(join(output, "results.json"), "utf-8"));
+      expect(result.methodology.taskSource).toMatchObject({ kind: "frozen-task-file", independentGroundTruth: true, source: "cli fixture" });
+      expect(result.options.suites).toEqual(["retrieval"]);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
     }
   });
 
@@ -164,6 +194,9 @@ describe("cli", () => {
     expect(await cli(["eval", repo, "--limit", "1001"])).toBe(1);
     expect(await cli(["eval", repo, "--scales", "10000001"])).toBe(1);
     expect(await cli(["eval", repo, "--min-recall", "1.1"])).toBe(1);
+    expect(await cli(["eval", repo, "--min-graph-precision", "1.1"])).toBe(1);
+    expect(await cli(["eval", repo, "--suite", "retrieval,unknown"])).toBe(1);
+    expect(await cli(["eval", repo, "--tasks-file", join(repo, "missing-tasks.json")])).toBe(1);
   });
 
 });

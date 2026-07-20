@@ -3,9 +3,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { aggregateRuns, evaluateObservation } from "../src/eval/report.js";
+import { runRgBaseline } from "../src/eval/baseline.js";
 import { defaultEvalOptions, quickEvalOptions, runRepositoryEval } from "../src/eval/evaluator.js";
-import type { EvalProgressEvent, EvalTask } from "../src/eval/types.js";
+import { aggregateRuns, evaluateObservation } from "../src/eval/report.js";
+import type { EvalProgressEvent, EvalTask, EvalTaskFile } from "../src/eval/types.js";
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -44,116 +45,301 @@ function gitWorktrees(repo: string): string {
   return execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: repo, encoding: "utf-8" });
 }
 
-describe("repository evaluator", () => {
-  it("keeps quick mode bounded while full defaults retain all-file coverage", () => {
-    expect(quickEvalOptions("/tmp/repo").scales).toEqual([500]);
-    expect(defaultEvalOptions("/tmp/repo").scales).toEqual([500, 2000, "all"]);
+function frozenTaskFile(overrides: Partial<EvalTaskFile> = {}): string {
+  const dir = mkdtempSync(join(tmpdir(), "codelens-eval-tasks-"));
+  cleanup.push(dir);
+  const path = join(dir, "tasks.json");
+  const file: EvalTaskFile = {
+    version: 1,
+    source: "reviewed fixture",
+    independentGroundTruth: true,
+    tasks: [
+      {
+        id: "locate-session",
+        suite: "retrieval",
+        type: "locate",
+        query: "validate session token",
+        expectedPaths: ["src/auth/session.ts"],
+        confidence: 1,
+      },
+      {
+        id: "callers-session",
+        suite: "graph",
+        type: "callers",
+        query: "callers of auth session",
+        targetPath: "src/auth/session.ts",
+        expectedPaths: ["src/routes/login.ts", "src/routes/logout.ts", "tests/session.test.ts"],
+        confidence: 1,
+      },
+    ],
+    ...overrides,
+  };
+  writeFileSync(path, JSON.stringify(file, null, 2));
+  return path;
+}
+
+function zeroThresholds() {
+  return { minRecallAtK: 0, minMrr: 0, minSuccessRate: 0, minGraphPrecision: 0 };
+}
+
+function metricTask(): EvalTask {
+  return {
+    id: "task",
+    suite: "retrieval",
+    type: "locate",
+    query: "session validation",
+    expectedPaths: ["src/auth.ts", "src/session.ts"],
+    confidence: 1,
+    contributesToThresholds: true,
+    origin: "test",
+    groundTruth: { kind: "frozen-reviewed", independent: true },
+  };
+}
+
+describe("repository evaluator v2", () => {
+  it("keeps quick mode bounded and declares suite defaults", () => {
+    expect(quickEvalOptions("/tmp/repo")).toMatchObject({ scales: [500], suites: ["retrieval", "graph"] });
+    expect(defaultEvalOptions("/tmp/repo")).toMatchObject({ scales: [500, 2000, "all"], suites: ["retrieval", "graph", "freshness"] });
   });
 
-  it("runs deterministically, writes reports, and leaves the target unchanged", () => {
+  it("runs automatic self-evaluation deterministically and writes v2 artifacts", () => {
     const repo = fixtureRepo();
     const outputA = mkdtempSync(join(tmpdir(), "codelens-eval-output-a-"));
     const outputB = mkdtempSync(join(tmpdir(), "codelens-eval-output-b-"));
     cleanup.push(outputA, outputB);
     const before = gitStatus(repo);
     const progress: EvalProgressEvent[] = [];
-    const optionsA = {
+    const options = {
       ...quickEvalOptions(repo),
       outputDir: outputA,
       taskLimit: 12,
-      thresholds: { minRecallAtK: 0, minMrr: 0, minSuccessRate: 0 },
+      thresholds: zeroThresholds(),
       onProgress: (event: EvalProgressEvent) => progress.push(event),
     };
-    const first = runRepositoryEval(optionsA);
-    const second = runRepositoryEval({ ...optionsA, repoRoot: join(repo, "src"), outputDir: outputB });
+    const first = runRepositoryEval(options);
+    const second = runRepositoryEval({ ...options, repoRoot: join(repo, "src"), outputDir: outputB });
 
-    expect(first.scales).toHaveLength(1);
-    expect(first.scales[0]!.tasks.length).toBeGreaterThan(0);
-    expect(second.repository.root).toBe(first.repository.root);
+    expect(first.version).toBe(2);
+    expect(first.methodology.taskSource).toEqual({ kind: "automatic-self-evaluation", independentGroundTruth: false });
+    expect(first.methodology.retrievalComparable).toBe(true);
+    expect(first.methodology.graphIndependentGroundTruth).toBe(false);
     expect(first.scales[0]!.tasks.map((task) => task.id)).toEqual(second.scales[0]!.tasks.map((task) => task.id));
-    expect(first.scales[0]!.aggregates.full?.taskCount).toBeGreaterThan(0);
-    expect(first.scales[0]!.aggregates.lexical?.taskCount).toBeGreaterThan(0);
-    expect(first.scales[0]!.aggregates.fts?.taskCount).toBeGreaterThan(0);
-    expect(first.scales[0]!.aggregates.rg?.taskCount).toBeGreaterThan(0);
+    expect(first.methodology.taskSetDigest).toBe(second.methodology.taskSetDigest);
+    expect(first.scales[0]!.retrieval.locate?.full?.taskCount).toBeGreaterThan(0);
+    expect(first.scales[0]!.graph.callers?.taskCount).toBeGreaterThan(0);
     expect(existsSync(first.artifacts.resultsJson)).toBe(true);
-    expect(existsSync(first.artifacts.reportMarkdown)).toBe(true);
-    expect(existsSync(first.artifacts.tasksJson)).toBe(true);
-    expect(JSON.parse(readFileSync(first.artifacts.resultsJson, "utf-8")).version).toBe(1);
-    expect(readFileSync(first.artifacts.reportMarkdown, "utf-8")).toContain("CodeLens Repository Evaluation");
+    expect(JSON.parse(readFileSync(first.artifacts.resultsJson, "utf-8")).version).toBe(2);
+    expect(readFileSync(first.artifacts.reportMarkdown, "utf-8")).toContain("self-evaluation");
     expect(gitStatus(repo)).toBe(before);
-    expect(progress.some((event) => event.phase === "scan" && event.status === "complete")).toBe(true);
-    expect(progress.some((event) => event.phase === "index" && event.status === "progress")).toBe(true);
     expect(progress.some((event) => event.phase === "retrieval" && event.status === "complete")).toBe(true);
-    expect(progress.some((event) => event.phase === "reports" && event.status === "complete")).toBe(true);
     expect(progress.at(-1)).toMatchObject({ phase: "evaluation", status: "complete" });
   });
 
-  it("uses module paths for relationship tasks with anonymous index exports", () => {
+  it("runs automatic graph self-consistency only at its label-generating tier", () => {
     const repo = fixtureRepo();
-    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-module-tasks-"));
+    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-auto-scales-"));
+    cleanup.push(output);
+    const result = runRepositoryEval({
+      ...defaultEvalOptions(repo),
+      outputDir: output,
+      suites: ["retrieval", "graph"],
+      scales: [6, "all"],
+      taskLimit: 100,
+      thresholds: zeroThresholds(),
+    });
+    expect(result.scales).toHaveLength(2);
+    expect(result.scales[0]!.runs.some((run) => run.arm === "graph")).toBe(true);
+    expect(result.scales[1]!.runs.some((run) => run.arm === "graph")).toBe(false);
+    expect(result.skipped.some((item) => item.includes("label-generating smallest tier"))).toBe(true);
+  });
+
+  it("loads independent frozen tasks once and reuses them across nested scales", () => {
+    const repo = fixtureRepo();
+    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-frozen-"));
+    const replayOutput = mkdtempSync(join(tmpdir(), "codelens-eval-output-replay-"));
+    cleanup.push(output, replayOutput);
+    const result = runRepositoryEval({
+      ...defaultEvalOptions(repo),
+      outputDir: output,
+      taskFile: frozenTaskFile(),
+      suites: ["retrieval", "graph"],
+      scales: [4, "all"],
+      repeats: 2,
+      thresholds: zeroThresholds(),
+    });
+
+    expect(result.methodology.taskSource).toMatchObject({ kind: "frozen-task-file", independentGroundTruth: true, source: "reviewed fixture" });
+    expect(result.methodology.graphIndependentGroundTruth).toBe(true);
+    expect(result.scales.map((scale) => scale.label)).toEqual(["4", "all"]);
+    expect(result.scales[0]!.tasks).toEqual(result.scales[1]!.tasks);
+    for (const scale of result.scales) {
+      expect(scale.tasks.map((task) => task.id)).toEqual(["locate-session", "callers-session"]);
+      expect(scale.tasks.every((task) => task.contributesToThresholds)).toBe(true);
+      expect(scale.runs.filter((run) => run.arm !== "graph")).toHaveLength(8);
+      expect(scale.runs.filter((run) => run.arm === "graph")).toHaveLength(2);
+      expect(scale.retrieval.locate?.full).toMatchObject({ taskCount: 1, sampleCount: 2 });
+      expect(scale.graph.callers).toMatchObject({ taskCount: 1, sampleCount: 2, recallAtK: 1, precisionAtK: 1, successRate: 1 });
+    }
+    const replay = runRepositoryEval({
+      ...quickEvalOptions(repo),
+      outputDir: replayOutput,
+      taskFile: result.artifacts.tasksJson,
+      suites: ["retrieval", "graph"],
+      thresholds: zeroThresholds(),
+    });
+    expect(replay.methodology.taskSetDigest).toBe(result.methodology.taskSetDigest);
+  });
+
+  it("rejects malformed, duplicate, and missing frozen task paths", () => {
+    const repo = fixtureRepo();
+    const malformed = frozenTaskFile({ tasks: [{
+      id: "bad",
+      suite: "graph",
+      type: "callers",
+      query: "bad graph task",
+      expectedPaths: ["src/auth/session.ts"],
+    }] });
+    expect(() => runRepositoryEval({ ...quickEvalOptions(repo), taskFile: malformed })).toThrow(/targetPath is required/);
+
+    const duplicate = frozenTaskFile({ tasks: [
+      { id: "same", suite: "retrieval", type: "locate", query: "one", expectedPaths: ["src/auth/session.ts"] },
+      { id: "same", suite: "retrieval", type: "locate", query: "two", expectedPaths: ["src/auth/session.ts"] },
+    ] });
+    expect(() => runRepositoryEval({ ...quickEvalOptions(repo), taskFile: duplicate })).toThrow(/duplicate task id/);
+
+    const missing = frozenTaskFile({ tasks: [
+      { id: "missing", suite: "retrieval", type: "locate", query: "missing", expectedPaths: ["src/does-not-exist.ts"] },
+    ] });
+    expect(() => runRepositoryEval({ ...quickEvalOptions(repo), taskFile: missing })).toThrow(/missing or not indexable/);
+
+    const unreviewedGraphGate = frozenTaskFile({
+      independentGroundTruth: false,
+      tasks: [{
+        id: "unreviewed-graph",
+        suite: "graph",
+        type: "callers",
+        query: "callers",
+        targetPath: "src/auth/session.ts",
+        expectedPaths: ["src/routes/login.ts"],
+        contributesToThresholds: true,
+      }],
+    });
+    expect(() => runRepositoryEval({ ...quickEvalOptions(repo), taskFile: unreviewedGraphGate })).toThrow(/requires independentGroundTruth/);
+  });
+
+  it("restricts rg to the selected inventory", () => {
+    const repo = fixtureRepo();
+    const task = { ...metricTask(), query: "widget" };
+    const onlySession = runRgBaseline(repo, task, 10, ["src/auth/session.ts"]);
+    const withWidget = runRgBaseline(repo, task, 10, ["src/auth/session.ts", "src/widgets/index.ts"]);
+    expect(onlySession.foundPaths).toEqual([]);
+    expect(withWidget.foundPaths).toEqual(["src/widgets/index.ts"]);
+  });
+
+  it("counterbalances arm order and treats repeats as timing samples", () => {
+    const repo = fixtureRepo();
+    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-repeats-"));
     cleanup.push(output);
     const result = runRepositoryEval({
       ...quickEvalOptions(repo),
       outputDir: output,
-      taskLimit: 100,
-      thresholds: { minRecallAtK: 0, minMrr: 0, minSuccessRate: 0 },
+      taskFile: frozenTaskFile({ tasks: [
+        { id: "one", suite: "retrieval", type: "locate", query: "validate session", expectedPaths: ["src/auth/session.ts"] },
+        { id: "two", suite: "retrieval", type: "locate", query: "login route", expectedPaths: ["src/routes/login.ts"] },
+        { id: "history-one", suite: "retrieval", type: "history", query: "add session authentication", expectedPaths: ["src/auth/session.ts"] },
+      ] }),
+      suites: ["retrieval"],
+      repeats: 2,
+      thresholds: zeroThresholds(),
     });
     const scale = result.scales[0]!;
-    const relationshipTasks = scale.tasks.filter((task) =>
-      (task.type === "callers" || task.type === "tests") && task.sourcePath === "src/widgets/index.ts",
-    );
-    expect(relationshipTasks.map((task) => task.type).sort()).toEqual(["callers", "tests"]);
-    expect(relationshipTasks.every((task) => task.symbol === undefined)).toBe(true);
-    expect(relationshipTasks.map((task) => task.query).sort()).toEqual(["callers of widgets", "tests for widgets"]);
-    expect(relationshipTasks.every((task) => task.origin.startsWith("direct file "))).toBe(true);
-    const taskIds = new Set(relationshipTasks.map((task) => task.id));
-    const fullRuns = scale.runs.filter((run) => run.arm === "full" && taskIds.has(run.taskId));
-    expect(fullRuns).toHaveLength(2);
-    expect(fullRuns.every((run) => run.success)).toBe(true);
+    expect(scale.retrieval.locate?.full).toMatchObject({ taskCount: 2, sampleCount: 4 });
+    const firstOrders = scale.runs.filter((run) => run.taskId === "one").map((run) => `${run.repeat}:${run.arm}:${run.order}`);
+    const historyOrders = scale.runs.filter((run) => run.taskId === "history-one").map((run) => `${run.repeat}:${run.arm}:${run.order}`);
+    expect(firstOrders).toContain("0:full:0");
+    expect(firstOrders).toContain("1:lexical:0");
+    expect(historyOrders).toContain("0:full:0");
+    expect(historyOrders).toContain("1:lexical:0");
   });
 
-  it("supports scale tiers, repeats, ablations, and threshold failures", () => {
+  it("applies recall, precision, and success thresholds to reviewed graph labels", () => {
     const repo = fixtureRepo();
-    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-scales-"));
+    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-graph-thresholds-"));
     cleanup.push(output);
+    const tasks = frozenTaskFile({ tasks: [{
+      id: "incorrect-callers",
+      suite: "graph",
+      type: "callers",
+      query: "callers of auth session",
+      targetPath: "src/auth/session.ts",
+      expectedPaths: ["src/widgets/index.ts"],
+      confidence: 1,
+    }] });
     const result = runRepositoryEval({
       ...quickEvalOptions(repo),
       outputDir: output,
-      taskLimit: 8,
-      repeats: 2,
-      scales: [2, "all"],
-      thresholds: { minRecallAtK: 1.1, minMrr: 1.1, minSuccessRate: 1.1 },
+      taskFile: tasks,
+      suites: ["graph"],
+      thresholds: { minRecallAtK: 1, minMrr: 1, minSuccessRate: 1, minGraphPrecision: 1 },
     });
-    expect(result.scales.map((scale) => scale.label)).toEqual(["2", "all"]);
-    expect(result.scales.reduce((total, scale) => total + scale.tasks.length, 0)).toBeLessThanOrEqual(8);
-    for (const scale of result.scales) {
-      expect(scale.runs.length).toBe(scale.tasks.length * 4 * 2);
-      expect(scale.aggregates.full).toBeDefined();
-      expect(scale.aggregates.lexical).toBeDefined();
-      expect(scale.aggregates.fts).toBeDefined();
-      expect(scale.aggregates.rg).toBeDefined();
-    }
     expect(result.pass).toBe(false);
-    expect(result.thresholdFailures.length).toBeGreaterThan(0);
+    expect(result.thresholdFailures.some((failure) => failure.includes("graph recall"))).toBe(true);
+    expect(result.thresholdFailures.some((failure) => failure.includes("graph precision"))).toBe(true);
+    expect(result.thresholdFailures.some((failure) => failure.includes("graph success"))).toBe(true);
   });
 
-  it("runs edit/delete freshness probes in a temporary worktree", () => {
+  it("excludes low-confidence tasks from pass/fail thresholds", () => {
+    const repo = fixtureRepo();
+    const informationalOutput = mkdtempSync(join(tmpdir(), "codelens-eval-output-informational-"));
+    const gatedOutput = mkdtempSync(join(tmpdir(), "codelens-eval-output-gated-"));
+    cleanup.push(informationalOutput, gatedOutput);
+    const lowConfidence = frozenTaskFile({ tasks: [{
+      id: "informational",
+      suite: "retrieval",
+      type: "history",
+      query: "terms that cannot possibly retrieve the expected implementation",
+      expectedPaths: ["src/auth/session.ts"],
+      confidence: 0.7,
+    }] });
+    const informational = runRepositoryEval({
+      ...quickEvalOptions(repo),
+      outputDir: informationalOutput,
+      taskFile: lowConfidence,
+      suites: ["retrieval"],
+      thresholds: { minRecallAtK: 1, minMrr: 1, minSuccessRate: 1, minGraphPrecision: 1 },
+    });
+    expect(informational.pass).toBe(true);
+    expect(informational.thresholdFailures).toEqual([]);
+
+    const highConfidence = frozenTaskFile({ tasks: [{
+      id: "eligible",
+      suite: "retrieval",
+      type: "locate",
+      query: "terms that cannot possibly retrieve the expected implementation",
+      expectedPaths: ["src/auth/session.ts"],
+      confidence: 1,
+    }] });
+    const gated = runRepositoryEval({
+      ...quickEvalOptions(repo),
+      outputDir: gatedOutput,
+      taskFile: highConfidence,
+      suites: ["retrieval"],
+      thresholds: { minRecallAtK: 1, minMrr: 1, minSuccessRate: 1, minGraphPrecision: 1 },
+    });
+    expect(gated.pass).toBe(false);
+    expect(gated.thresholdFailures.every((failure) => failure.includes("locate"))).toBe(true);
+  });
+
+  it("runs edit/delete freshness as an independent suite", () => {
     const repo = fixtureRepo();
     const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-freshness-"));
     cleanup.push(output);
     const before = gitStatus(repo);
     const worktreesBefore = gitWorktrees(repo);
-    const result = runRepositoryEval({
-      ...quickEvalOptions(repo),
-      outputDir: output,
-      taskLimit: 4,
-      freshness: true,
-      thresholds: { minRecallAtK: 0, minMrr: 0, minSuccessRate: 0 },
-    });
-    expect(result.freshness.attempted).toBe(true);
-    expect(result.freshness.modifiedVisible).toBe(true);
-    expect(result.freshness.deletedRemoved).toBe(true);
-    expect(result.freshness.passed).toBe(true);
+    const result = runRepositoryEval({ ...defaultEvalOptions(repo), outputDir: output, suites: ["freshness"] });
+    expect(result.scales).toEqual([]);
+    expect(result.methodology.taskSource).toEqual({ kind: "none", independentGroundTruth: true });
+    expect(result.freshness).toMatchObject({ attempted: true, modifiedVisible: true, deletedRemoved: true, passed: true });
     expect(gitStatus(repo)).toBe(before);
     expect(gitWorktrees(repo)).toBe(worktreesBefore);
   });
@@ -172,68 +358,44 @@ describe("repository evaluator", () => {
     symlinkSync(outsideFile, join(repo, "linked.ts"));
     execFileSync("git", ["add", "-A"], { cwd: repo });
     execFileSync("git", ["commit", "-q", "-m", "add linked source"], { cwd: repo });
-
-    const result = runRepositoryEval({
-      ...quickEvalOptions(repo),
-      outputDir: output,
-      taskLimit: 2,
-      freshness: true,
-      thresholds: { minRecallAtK: 0, minMrr: 0, minSuccessRate: 0 },
-    });
+    const result = runRepositoryEval({ ...defaultEvalOptions(repo), outputDir: output, suites: ["freshness"] });
     expect(result.freshness.attempted).toBe(false);
     expect(result.freshness.skippedReason).toMatch(/no safe regular text file/);
     expect(readFileSync(outsideFile, "utf-8")).toBe(original);
     expect(gitWorktrees(repo).match(/^worktree /gm)).toHaveLength(1);
   });
 
-  it("calculates recall, reciprocal rank, precision, and aggregates", () => {
-    const task: EvalTask = {
-      id: "task",
-      type: "locate",
-      query: "session validation",
-      expectedPaths: ["src/auth.ts", "src/session.ts"],
-      confidence: 1,
-      origin: "test",
-    };
-    const run = evaluateObservation(task, "full", {
-      foundPaths: ["src/other.ts", "src/session.ts"],
+  it("calculates unique-task metrics and deterministic confidence intervals", () => {
+    const task = metricTask();
+    const first = evaluateObservation(task, "full", {
+      foundPaths: ["src/other.ts", "src/session.ts", "src/session.ts"],
       toolCalls: 1,
       bytesServed: 100,
-      bytesRead: 0,
       elapsedMs: 10,
-    }, 5);
-    expect(run.recallAtK).toBe(0.5);
-    expect(run.reciprocalRank).toBe(0.5);
-    expect(run.precisionAtK).toBe(0.2);
-    expect(run.success).toBe(true);
-    const aggregate = aggregateRuns([run]);
-    expect(aggregate.recallAtK).toBe(0.5);
-    expect(aggregate.mrr).toBe(0.5);
-    expect(aggregate.totalBytesServed).toBe(100);
+    }, 5, 0, 0);
+    const second = { ...first, repeat: 1, elapsedMs: 20 };
+    expect(first).toMatchObject({ recallAtK: 0.5, reciprocalRank: 0.5, precisionAtK: 0.2, success: true });
+    const aggregate = aggregateRuns([first, second], 42);
+    expect(aggregate).toMatchObject({ taskCount: 1, sampleCount: 2, recallAtK: 0.5, mrr: 0.5, totalBytesServed: 200 });
+    expect(aggregate.confidence95.recallAtK).toEqual({ low: 0.5, high: 0.5 });
+    expect(aggregate.confidence95.precisionAtK).toEqual({ low: 0.2, high: 0.2 });
   });
 
-  it("reports the active phase when evaluation fails", () => {
+  it("reports the active phase and ignores progress callback failures", () => {
     const dir = mkdtempSync(join(tmpdir(), "codelens-eval-not-git-"));
-    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-"));
     const progress: EvalProgressEvent[] = [];
-    cleanup.push(dir, output);
-    expect(() => runRepositoryEval({
-      ...quickEvalOptions(dir),
-      outputDir: output,
-      onProgress: (event) => progress.push(event),
-    })).toThrow(/evaluation failed during repository: not a Git repository/);
+    cleanup.push(dir);
+    expect(() => runRepositoryEval({ ...quickEvalOptions(dir), onProgress: (event) => progress.push(event) })).toThrow(/evaluation failed during repository/);
     expect(progress.at(-1)).toMatchObject({ phase: "repository", status: "error" });
-  });
 
-  it("ignores exceptions thrown by progress callbacks", () => {
     const repo = fixtureRepo();
-    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-progress-callback-"));
+    const output = mkdtempSync(join(tmpdir(), "codelens-eval-output-progress-"));
     cleanup.push(output);
     expect(() => runRepositoryEval({
       ...quickEvalOptions(repo),
       outputDir: output,
       taskLimit: 1,
-      thresholds: { minRecallAtK: 0, minMrr: 0, minSuccessRate: 0 },
+      thresholds: zeroThresholds(),
       onProgress: () => { throw new Error("progress sink failed"); },
     })).not.toThrow();
   });

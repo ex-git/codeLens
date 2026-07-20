@@ -1,6 +1,11 @@
-export type EvalTaskType = "locate" | "callers" | "tests" | "history";
-export type EvalArmName = "full" | "lexical" | "fts" | "rg";
+export type EvalSuiteName = "retrieval" | "graph" | "freshness";
+export type EvalTaskType = "locate" | "history" | "callers" | "tests";
+export type EvalRetrievalTaskType = Extract<EvalTaskType, "locate" | "history">;
+export type EvalGraphTaskType = Extract<EvalTaskType, "callers" | "tests">;
+export type EvalRetrievalArmName = "full" | "lexical" | "fts" | "rg";
+export type EvalArmName = EvalRetrievalArmName | "graph";
 export type EvalProgressStatus = "start" | "progress" | "complete" | "skipped" | "error";
+export type EvalGroundTruthKind = "auto-index" | "git-history" | "frozen-reviewed" | "frozen-unreviewed";
 
 export interface EvalProgressEvent {
   phase: string;
@@ -14,22 +19,52 @@ export interface EvalProgressEvent {
 
 export type EvalProgressCallback = (event: EvalProgressEvent) => void;
 
+export interface EvalGroundTruth {
+  kind: EvalGroundTruthKind;
+  independent: boolean;
+}
+
 export interface EvalTask {
   id: string;
+  suite: Exclude<EvalSuiteName, "freshness">;
   type: EvalTaskType;
   query: string;
+  targetPath?: string;
   expectedPaths: string[];
   confidence: number;
-  symbol?: string;
-  sourcePath?: string;
+  contributesToThresholds: boolean;
   origin: string;
+  groundTruth: EvalGroundTruth;
+  symbol?: string;
+}
+
+export interface EvalTaskFile {
+  version: 1;
+  source?: string;
+  independentGroundTruth: boolean;
+  tasks: Array<{
+    id: string;
+    suite: Exclude<EvalSuiteName, "freshness">;
+    type: EvalTaskType;
+    query: string;
+    targetPath?: string;
+    expectedPaths: string[];
+    confidence?: number;
+    contributesToThresholds?: boolean;
+    origin?: string;
+  }>;
+}
+
+export interface EvalTaskSource {
+  kind: "automatic-self-evaluation" | "frozen-task-file" | "none";
+  independentGroundTruth: boolean;
+  source?: string;
 }
 
 export interface EvalObservation {
   foundPaths: string[];
   toolCalls: number;
   bytesServed: number;
-  bytesRead: number;
   elapsedMs: number;
   error?: string;
 }
@@ -37,6 +72,8 @@ export interface EvalObservation {
 export interface EvalTaskRun {
   taskId: string;
   arm: EvalArmName;
+  repeat: number;
+  order: number;
   foundPaths: string[];
   recallAtK: number;
   reciprocalRank: number;
@@ -44,28 +81,39 @@ export interface EvalTaskRun {
   success: boolean;
   toolCalls: number;
   bytesServed: number;
-  bytesRead: number;
   elapsedMs: number;
   error?: string;
 }
 
+export interface EvalConfidenceInterval {
+  low: number;
+  high: number;
+}
+
 export interface EvalAggregate {
   taskCount: number;
+  sampleCount: number;
   successRate: number;
   recallAtK: number;
   mrr: number;
   precisionAtK: number;
+  confidence95: {
+    successRate: EvalConfidenceInterval;
+    recallAtK: EvalConfidenceInterval;
+    mrr: EvalConfidenceInterval;
+    precisionAtK: EvalConfidenceInterval;
+  };
   medianElapsedMs: number;
   p95ElapsedMs: number;
   totalToolCalls: number;
   totalBytesServed: number;
-  totalBytesRead: number;
 }
 
 export interface EvalThresholds {
   minRecallAtK: number;
   minMrr: number;
   minSuccessRate: number;
+  minGraphPrecision: number;
 }
 
 export interface EvalScaleResult {
@@ -78,7 +126,8 @@ export interface EvalScaleResult {
   dbBytes: number;
   tasks: EvalTask[];
   runs: EvalTaskRun[];
-  aggregates: Partial<Record<EvalArmName, EvalAggregate>>;
+  retrieval: Partial<Record<EvalRetrievalTaskType, Partial<Record<EvalRetrievalArmName, EvalAggregate>>>>;
+  graph: Partial<Record<EvalGraphTaskType, EvalAggregate>>;
 }
 
 export interface EvalFreshnessResult {
@@ -99,15 +148,25 @@ export interface EvalOptions {
   repeats: number;
   resultLimit: number;
   scales: Array<number | "all">;
+  suites: EvalSuiteName[];
+  taskFile?: string;
   outputDir?: string;
   quick: boolean;
-  freshness: boolean;
   thresholds: EvalThresholds;
   onProgress?: EvalProgressCallback;
 }
 
 export interface EvalResult {
-  version: 1;
+  version: 2;
+  methodology: {
+    taskSource: EvalTaskSource;
+    taskSetDigest: string;
+    retrievalComparable: true;
+    graphIndependentGroundTruth: boolean;
+    repeatsAreTimingSamples: true;
+    scaleTasksFrozen: true;
+    notes: string[];
+  };
   repository: {
     root: string;
     branch: string;
@@ -115,7 +174,16 @@ export interface EvalResult {
     dirtyFiles: number;
     totalFiles: number;
   };
-  options: Omit<EvalOptions, "repoRoot" | "outputDir" | "onProgress">;
+  options: {
+    taskLimit: number;
+    seed: number;
+    repeats: number;
+    resultLimit: number;
+    scales: Array<number | "all">;
+    suites: EvalSuiteName[];
+    quick: boolean;
+    thresholds: EvalThresholds;
+  };
   startedAt: string;
   completedAt: string;
   durationMs: number;
@@ -124,12 +192,7 @@ export interface EvalResult {
   skipped: string[];
   scales: EvalScaleResult[];
   freshness: EvalFreshnessResult;
-  artifacts: {
-    directory: string;
-    resultsJson: string;
-    reportMarkdown: string;
-    tasksJson: string;
-  };
+  artifacts: EvalArtifacts;
 }
 
 export interface EvalArtifacts {
