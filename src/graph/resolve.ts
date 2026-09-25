@@ -64,3 +64,43 @@ export function resolveImportFs(repoRoot: string, fromPath: string, spec: string
   }
   return null;
 }
+
+/** Convert a Python dotted/relative module name to a repo-relative module stem. */
+function pythonModuleTarget(fromPath: string, spec: string): string | null {
+  const match = /^(\.*)(.*)$/.exec(spec);
+  if (!match) return null;
+  const level = match[1]!.length;
+  const moduleName = match[2]!;
+  const packageParts = posix.dirname(fromPath).split("/").filter((part) => part && part !== ".");
+  if (level > packageParts.length) return null;
+  let base = level > 0 ? posix.dirname(fromPath) : "";
+  for (let i = 1; i < level; i++) base = posix.dirname(base);
+  const modulePath = moduleName.split(".").filter(Boolean).join("/");
+  const target = posix.normalize(posix.join(base, modulePath));
+  return target === "." ? "" : target;
+}
+
+/** Exact file/package candidates for a Python module stem. */
+function* pythonCandidates(target: string): Generator<string> {
+  yield posix.join(target, "__init__.py");
+  if (target) yield `${target}.py`;
+}
+
+/** Resolve a Python module only when its exact repo-local file/package is known. */
+export function resolvePythonImport(fromPath: string, spec: string, knownFiles: Set<string>): string | null {
+  const target = pythonModuleTarget(fromPath, spec);
+  if (target === null) return null;
+  for (const cand of pythonCandidates(target)) if (knownFiles.has(cand)) return cand;
+  return null;
+}
+
+/** Filesystem-backed exact Python module resolution. */
+export function resolvePythonImportFs(repoRoot: string, fromPath: string, spec: string): string | null {
+  const target = pythonModuleTarget(fromPath, spec);
+  if (target === null) return null;
+  for (const cand of pythonCandidates(target)) {
+    const abs = join(repoRoot, cand);
+    if (existsSync(abs) && statSync(abs).isFile()) return cand;
+  }
+  return null;
+}

@@ -19,6 +19,8 @@ beforeAll(() => {
   writeFileSync(join(repo, "src", "auth", "session.ts"), "export function validateSession() { return true; }\n");
   writeFileSync(join(repo, "src", "auth", "auth.ts"), "import { validateSession } from './session';\nexport const ok = validateSession();\n");
   writeFileSync(join(repo, "src", "auth", "session.test.ts"), "import { validateSession } from './session';\ntest('x', () => {});\n");
+  writeFileSync(join(repo, "src", "auth", "base.py"), "class Base:\n    pass\n");
+  writeFileSync(join(repo, "src", "auth", "child.py"), "from .base import Base\n\nclass Child(Base):\n    pass\n");
   execSync("git add -A && git commit -q -m init", { cwd: repo });
   scope = detectScope(repo);
 });
@@ -46,6 +48,18 @@ describe("graph query", () => {
     const r = buildIndex(db, scope!);
     const ns = neighbors(db, r.indexId, "src/auth/auth.ts", { depth: 1 });
     expect(ns.every((n) => n.hops <= 1)).toBe(true);
+    db.close();
+  });
+
+  it("includes Python inheritance in default traversal", () => {
+    const db = openMemoryDb();
+    const r = buildIndex(db, scope!);
+    const ns = neighbors(db, r.indexId, "src/auth/child.py", { depth: 1, direction: "out" });
+    expect(ns).toContainEqual(expect.objectContaining({
+      path: "src/auth/base.py",
+      edgeType: "inherits",
+      hops: 1,
+    }));
     db.close();
   });
 });

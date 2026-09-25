@@ -5,7 +5,7 @@
 A local, **branch-aware code search & relation graph** — a lens into how
 the code in a repo connects. Indexes the current branch into SQLite (FTS5
 lexical + tree-sitter symbols + source-graph edges: imports / tests / calls /
-defines / belongs_to) and returns compact, ranked, re-queryable handles so you
+inherits / defines / belongs_to) and returns compact, ranked, re-queryable handles so you
 can find relevant files/symbols and walk their relationships without flooding
 your context with raw grep/read output.
 

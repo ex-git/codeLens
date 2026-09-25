@@ -70,8 +70,16 @@ export function extractSymbols(_path: string, lang: string, source: string, pars
     return /\bexport\b/.test(head);
   }
 
-  function walk(node: Parser.SyntaxNode) {
+  function symbolKind(node: Parser.SyntaxNode): string | undefined {
     const kind = SYMBOL_TYPES[node.type];
+    if (lang !== "python" || node.type !== "function_definition") return kind;
+
+    const container = node.parent?.type === "decorated_definition" ? node.parent.parent : node.parent;
+    return container?.type === "block" && container.parent?.type === "class_definition" ? "method" : "function";
+  }
+
+  function walk(node: Parser.SyntaxNode) {
+    const kind = symbolKind(node);
     if (kind && kind !== "import" && kind !== "export") {
       const name = nodeName(node);
       if (name) {

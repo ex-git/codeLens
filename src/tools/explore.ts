@@ -158,7 +158,7 @@ export function ctxExplore(
   const seenRelated = new Set<string>();
   for (const sourcePath of files.map((f) => f.path).slice(0, RELATED_SOURCE_LIMIT)) {
     try {
-      for (const n of neighbors(db, indexId, sourcePath, { types: ["imports", "imported_by", "tests", "calls", "references"], depth: relatedDepth })) {
+      for (const n of neighbors(db, indexId, sourcePath, { types: ["imports", "imported_by", "tests", "calls", "references", "inherits"], depth: relatedDepth })) {
         const key = `${sourcePath}\0${n.path}\0${n.edgeType}\0${n.hops}`;
         if (seenRelated.has(key)) continue;
         seenRelated.add(key);

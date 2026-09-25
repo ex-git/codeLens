@@ -18,7 +18,7 @@ CodeLens MCP server  ──▶  CLI (codelens <subcommand>)
    ├── File scanner              (.gitignore-aware, binary/size filters)
    ├── FTS5 indexer              (structure-aware chunks + content hash)
    ├── Tree-sitter symbol extractor (11 grammars, text fallback)
-   ├── Source graph builder      (imports / defines / tests / belongs_to)
+   ├── Source graph builder      (imports / calls / references / inherits / defines / exports / tests / belongs_to)
    ├── Graph query (recursive CTE + bounded BFS)
    ├── Freshness checker          (mtime/size fast → hash on suspicion)
    ├── TTL pruner                (never-delete guards)
@@ -51,9 +51,10 @@ SQLite
    parsed once and the same tree-sitter tree is reused for symbols and edges;
    structure-aware chunking consumes those extracted symbol ranges. 11 grammars
    shipped; unknown languages fall back to text-only FTS.
-4. **Source graph**: edges `imports`, `defines`, `belongs_to`, `exports`,
-   `tests` (filename heuristics). Resolution handles TS ESM `.js`→`.ts`
-   substitution. Unresolved imports emit no edge (no wrong edges).
+4. **Source graph**: edges `imports`, `calls`, `references`, `inherits`,
+   `defines`, `belongs_to`, `exports`, and `tests` (filename heuristics).
+   Resolution handles TS ESM `.js`→`.ts` substitution plus exact repo-local
+   Python modules/packages. Unresolved imports emit no edge (no wrong edges).
 5. *(No vector/semantic layer — removed; ranking is FTS + symbol + graph.)*
 
 ## Branch isolation (the core idea)

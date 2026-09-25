@@ -31,7 +31,7 @@ JSON-serialized text content.
 ## cl_related
 - **Input**: `{ path: string, types?: string[], depth?: number=2, direction?: "out"|"in"|"both" }`
 - **Returns**: `{ indexId, results:[{handle,path,edgeType,hops,confidence,stale?}], freshness?, pendingFiles? }`
-- **Edge types**: `imports|imported_by|tests|calls|references|defines|exports|belongs_to` (TS/JS populate `calls`/`references` and resolve dynamic `import()`).
+- **Edge types**: `imports|imported_by|tests|calls|references|inherits|defines|exports|belongs_to` (TS/JS populate `calls`/`references` and resolve dynamic `import()`; Python populates repo-local `imports`/`calls`/`inherits`).
 
 ## cl_impact
 - **Input**: `{ symbol?: string, path?: string, depth?: number=2, includeTests?: boolean=true }`

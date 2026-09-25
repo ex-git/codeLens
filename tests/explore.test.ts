@@ -22,6 +22,9 @@ beforeAll(() => {
     "import { validateSession } from './session';\nexport const ok = validateSession('x');\n");
   writeFileSync(join(repo, "src", "auth", "dupes.ts"),
     "export function duplicateThing() {\n  return 'duplicate duplicate';\n}\n");
+  writeFileSync(join(repo, "src", "auth", "base.py"), "class Base:\n    pass\n");
+  writeFileSync(join(repo, "src", "auth", "child.py"),
+    "from .base import Base\n\nclass Child(Base):\n    pass\n");
   execSync("git add -A && git commit -q -m init", { cwd: repo });
   scope = detectScope(repo);
 });
@@ -48,6 +51,18 @@ describe("ctxExplore", () => {
     buildIndex(db, scope!);
     const r = ctxExplore(db, "validateSession", { limit: 5, relatedDepth: 1 });
     expect(r.related.some((n) => n.path === "src/auth/auth.ts" || n.sourcePath === "src/auth/auth.ts")).toBe(true);
+    db.close();
+  });
+
+  it("includes Python inheritance in the relationship map", () => {
+    const db = openMemoryDb();
+    buildIndex(db, scope!);
+    const r = ctxExplore(db, "Child", { limit: 5, relatedDepth: 1 });
+    expect(r.related).toContainEqual(expect.objectContaining({
+      sourcePath: "src/auth/child.py",
+      path: "src/auth/base.py",
+      edgeType: "inherits",
+    }));
     db.close();
   });
 

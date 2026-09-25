@@ -151,10 +151,10 @@ export const TOOLS: ToolDef[] = [
   {
     name: "cl_related",
     description:
-      "Graph expansion: neighbors of a file (imports/imported_by/tests/callers) within the current index, bounded by depth. Compact handles.\n\nRETURNS: {indexId, results:[{handle,path,edgeType,hops,confidence}]}\n\nEXAMPLE: cl_related(path: \"src/auth/auth.ts\", types: [\"imports\"], depth: 2)",
+      "Graph expansion: neighbors of a file (imports/imported_by/tests/callers/inheritance) within the current index, bounded by depth. Compact handles.\n\nRETURNS: {indexId, results:[{handle,path,edgeType,hops,confidence}]}\n\nEXAMPLE: cl_related(path: \"src/auth/auth.ts\", types: [\"imports\"], depth: 2)",
     schema: {
       path: z.string().describe("Repo-relative POSIX path to expand from."),
-      types: z.array(z.string()).optional().describe("Edge types: imports|imported_by|tests|calls|references|defines|exports|belongs_to."),
+      types: z.array(z.string()).optional().describe("Edge types: imports|imported_by|tests|calls|references|inherits|defines|exports|belongs_to."),
       depth: z.coerce.number().optional().default(2).describe("Max hops (capped at 3)."),
       direction: z.enum(["out", "in", "both"]).optional().describe("Edge direction. Default 'both'."),
     },

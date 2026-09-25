@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS edges (
   to_id       TEXT,
   from_path   TEXT,
   to_path     TEXT,
-  type        TEXT NOT NULL,          -- imports|imported_by|defines|exports|references|calls|tests|belongs_to
+  type        TEXT NOT NULL,          -- imports|imported_by|defines|exports|references|calls|inherits|tests|belongs_to
   confidence  REAL NOT NULL DEFAULT 1.0,
   FOREIGN KEY (index_id) REFERENCES indexes(id) ON DELETE CASCADE
 );

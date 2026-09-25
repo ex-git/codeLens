@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { resolveImport } from "../src/graph/resolve.js";
+import { resolveImport, resolvePythonImport } from "../src/graph/resolve.js";
 
 import { extractEdges, insertEdges } from "../src/graph/edges.js";
 import { openMemoryDb } from "../src/db/db.js";
@@ -28,6 +28,36 @@ describe("resolveImport", () => {
   });
 });
 
+describe("resolvePythonImport", () => {
+  const known = new Set([
+    "base.py",
+    "app/base.py",
+    "app/services/auth.py",
+    "app/utils.py",
+    "pkg/models/__init__.py",
+  ]);
+
+  it("resolves relative Python modules", () => {
+    expect(resolvePythonImport("app/services/auth.py", "..utils", known)).toBe("app/utils.py");
+    expect(resolvePythonImport("app/services/auth.py", "..base", known)).toBe("app/base.py");
+  });
+
+  it("resolves exact repo-root Python modules and packages", () => {
+    expect(resolvePythonImport("app/services/auth.py", "pkg.models", known)).toBe("pkg/models/__init__.py");
+  });
+
+  it("prefers a package over a same-named module", () => {
+    const collision = new Set(["pkg.py", "pkg/__init__.py"]);
+    expect(resolvePythonImport("app/services/auth.py", "pkg", collision)).toBe("pkg/__init__.py");
+  });
+
+  it("does not guess external, source-root, or over-climbed modules", () => {
+    expect(resolvePythonImport("app/services/auth.py", "requests", known)).toBeNull();
+    expect(resolvePythonImport("app/services/auth.py", "utils", known)).toBeNull();
+    expect(resolvePythonImport("app/services/auth.py", "...base", known)).toBeNull();
+  });
+});
+
 describe("extractEdges", () => {
   it("emits imports edge for resolved relative import", () => {
     const dir = mkdtempSync(join(tmpdir(), "ce-edge-"));
@@ -52,6 +82,144 @@ describe("extractEdges", () => {
     const imp = edges.find((e) => e.type === "imports");
     expect(imp).toBeDefined();
     expect(imp!.toPath).toBeNull();
+  });
+
+  it("emits alias-aware Python imports, calls, and inheritance edges", () => {
+    const source = [
+      "from .utils import helper as h",
+      "from pkg.base import Base as Parent",
+      "from pkg.generic import Generic",
+      "import pkg.tools as tools",
+      "",
+      "class Child(Parent, Generic[int]):",
+      "    def run(self):",
+      "        h()",
+      "        h()",
+      "        tools.work()",
+      "",
+    ].join("\n");
+    const known = new Set([
+      "app/service.py",
+      "app/utils.py",
+      "pkg/base.py",
+      "pkg/generic.py",
+      "pkg/tools/__init__.py",
+    ]);
+    const edges = extractEdges("app/service.py", "python", source, "/tmp", known);
+
+    expect(edges.filter((e) => e.type === "imports").map((e) => e.toPath).sort()).toEqual([
+      "app/utils.py",
+      "pkg/base.py",
+      "pkg/generic.py",
+      "pkg/tools/__init__.py",
+    ]);
+    expect(edges.filter((e) => e.type === "calls").map((e) => e.toPath).sort()).toEqual([
+      "app/utils.py",
+      "pkg/tools/__init__.py",
+    ]);
+    expect(edges.find((e) => e.type === "calls" && e.toPath === "app/utils.py")?.toSymbol).toBe("helper");
+    expect(edges.filter((e) => e.type === "inherits")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        fromPath: "app/service.py",
+        toPath: "pkg/base.py",
+        fromSymbol: "Child",
+        toSymbol: "Base",
+      }),
+      expect.objectContaining({
+        fromPath: "app/service.py",
+        toPath: "pkg/generic.py",
+        fromSymbol: "Child",
+        toSymbol: "Generic",
+      }),
+    ]));
+  });
+
+  it("suppresses ambiguous package attributes with same-named submodules", () => {
+    const known = new Set(["app/service.py", "pkg/__init__.py", "pkg/sub.py"]);
+    const edges = extractEdges(
+      "app/service.py", "python", "from pkg import sub\nsub.run()\n", "/tmp", known,
+    );
+    expect(edges.find((e) => e.type === "imports")).toMatchObject({ toPath: "pkg/__init__.py" });
+    expect(edges.some((e) => e.type === "calls")).toBe(false);
+  });
+
+  it("does not apply from-import ambiguity to plain package imports", () => {
+    const known = new Set(["app/service.py", "foo/__init__.py", "foo/foo.py"]);
+    const edges = extractEdges(
+      "app/service.py", "python", "import foo\nfoo.run()\n", "/tmp", known,
+    );
+    expect(edges.find((e) => e.type === "calls")).toMatchObject({
+      toPath: "foo/__init__.py",
+      toSymbol: "run",
+    });
+  });
+
+  it("keeps distinct unaliased dotted imports sharing a root", () => {
+    const known = new Set(["app/service.py", "pkg/foo.py", "pkg/bar.py"]);
+    const edges = extractEdges(
+      "app/service.py", "python",
+      "import pkg.foo, pkg.bar\npkg.foo.run()\npkg.bar.run()\n", "/tmp", known,
+    );
+    expect(edges.filter((e) => e.type === "calls").map((e) => e.toPath).sort()).toEqual([
+      "pkg/bar.py",
+      "pkg/foo.py",
+    ]);
+  });
+
+  it("resolves bindings at each use and suppresses shadowed calls", () => {
+    const known = new Set(["app/service.py", "a.py", "b.py"]);
+    const ordered = extractEdges(
+      "app/service.py", "python", "from a import run\nrun()\nfrom b import run\n", "/tmp", known,
+    );
+    const parameterShadow = extractEdges(
+      "app/service.py", "python", "from a import run\ndef f(run):\n    return run()\n", "/tmp", known,
+    );
+    const assignmentShadow = extractEdges(
+      "app/service.py", "python", "from a import run\nrun = lambda: None\nrun()\n", "/tmp", known,
+    );
+    const unresolvedRebind = extractEdges(
+      "app/service.py", "python", "from a import run\nfrom external import run\nrun()\n", "/tmp", known,
+    );
+    const unresolvedBase = extractEdges(
+      "app/service.py", "python", "from a import Base\nfrom external import Base\nclass Child(Base):\n    pass\n", "/tmp", known,
+    );
+    expect(ordered.filter((e) => e.type === "calls").map((e) => e.toPath)).toEqual(["a.py"]);
+    expect(parameterShadow.some((e) => e.type === "calls")).toBe(false);
+    expect(assignmentShadow.some((e) => e.type === "calls")).toBe(false);
+    expect(unresolvedRebind.some((e) => e.type === "calls")).toBe(false);
+    expect(unresolvedBase.some((e) => e.type === "inherits")).toBe(false);
+  });
+
+  it("suppresses comprehension, with-as, and except-as shadowed calls", () => {
+    const known = new Set(["app/service.py", "a.py"]);
+    const sources = [
+      "from a import f\n[f() for f in xs]\n",
+      "from a import f\nwith resource as f:\n    f()\n",
+      "from a import f\ntry:\n    pass\nexcept Error as f:\n    f()\n",
+    ];
+    for (const source of sources) {
+      const edges = extractEdges("app/service.py", "python", source, "/tmp", known);
+      expect(edges.some((e) => e.type === "calls")).toBe(false);
+    }
+  });
+
+  it("requires the full module path for unaliased dotted imports", () => {
+    const known = new Set(["app/service.py", "pkg/tools.py"]);
+    const safe = extractEdges(
+      "app/service.py", "python", "import pkg.tools\npkg.tools.run()\n", "/tmp", known,
+    );
+    const unsafe = extractEdges(
+      "app/service.py", "python", "import pkg.tools\npkg.other()\n", "/tmp", known,
+    );
+    expect(safe.find((e) => e.type === "calls")).toMatchObject({ toPath: "pkg/tools.py", toSymbol: "run" });
+    expect(unsafe.some((e) => e.type === "calls")).toBe(false);
+  });
+
+  it("does not emit Python calls or inheritance for unresolved imports", () => {
+    const source = "from external.lib import Base, run\nclass Child(Base):\n    pass\nrun()\n";
+    const edges = extractEdges("app/service.py", "python", source, "/tmp", new Set(["app/service.py"]));
+    expect(edges.find((e) => e.type === "imports")).toMatchObject({ toPath: null, confidence: 0 });
+    expect(edges.some((e) => e.type === "calls" || e.type === "inherits")).toBe(false);
   });
 });
 

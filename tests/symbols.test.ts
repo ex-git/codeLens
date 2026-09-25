@@ -37,11 +37,28 @@ describe("extractSymbols", () => {
     expect(cls!.kind).toBe("class");
   });
 
-  it("extracts Python def + class", () => {
-    const src = "def add(a, b):\n    return a + b\n\nclass Foo:\n    def bar(self):\n        pass\n";
+  it("distinguishes Python functions from class methods", () => {
+    const src = [
+      "def add(a, b):",
+      "    return a + b",
+      "",
+      "class Foo:",
+      "    def bar(self):",
+      "        def inner():",
+      "            pass",
+      "        return inner()",
+      "",
+      "    @classmethod",
+      "    def create(cls):",
+      "        return cls()",
+      "",
+    ].join("\n");
     const syms = extractSymbols("a.py", "python", src);
     expect(syms.find((s) => s.name === "add" && s.kind === "function")).toBeDefined();
     expect(syms.find((s) => s.name === "Foo" && s.kind === "class")).toBeDefined();
+    expect(syms.find((s) => s.name === "bar" && s.kind === "method")).toBeDefined();
+    expect(syms.find((s) => s.name === "create" && s.kind === "method")).toBeDefined();
+    expect(syms.find((s) => s.name === "inner" && s.kind === "function")).toBeDefined();
   });
 
   it("returns [] for unsupported language (graceful fallback)", () => {

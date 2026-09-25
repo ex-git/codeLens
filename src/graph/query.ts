@@ -12,7 +12,7 @@ export interface GraphNeighbor {
   confidence: number;
 }
 
-const EDGE_TYPES_ALL = ["imports", "imported_by", "defines", "exports", "references", "calls", "tests", "belongs_to"];
+const EDGE_TYPES_ALL = ["imports", "imported_by", "defines", "exports", "references", "calls", "inherits", "tests", "belongs_to"];
 const MAX_DEPTH = 3;
 
 /** Recursive CTE neighbors of `startPath`, filtered by edge types, bounded by depth. */

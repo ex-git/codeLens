@@ -28,7 +28,8 @@ End-to-end workflow for a coding agent using codelens.
        { handle: "rel:src/auth/session.test.ts", path: "…", edgeType: "tests", hops: 1 },
        { handle: "rel:src/routes/login.ts", path: "…", edgeType: "imported_by", hops: 1 }
      ]
-   # TS/JS also populate `calls`/`references` and resolve dynamic import().
+   # TS/JS populate `calls`/`references` and resolve dynamic import(); Python
+   # populates exact repo-local `imports`/`calls`/`inherits` relationships.
 
    # Before changing shared code, ask for the blast radius.
    cl_impact(symbol: "validateSession", path: "src/auth/session.ts")
