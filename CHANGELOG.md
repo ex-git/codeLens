@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-24
+
+### Added
+- Added conservative repo-local Python graph extraction for imports, calls, and class inheritance, including alias-, scope-, source-order-, shadowing-, and ambiguity-aware binding resolution.
+- Classified Python functions defined directly in class bodies as methods and exposed `inherits` through default related traversal and relationship maps.
+
 ## [2.5.1] - 2026-07-20
 
 ### Changed
