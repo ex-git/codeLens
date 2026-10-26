@@ -5,6 +5,29 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-26
+
+### Added
+- Added `cl_path` / `codelens path` for bounded static relationship chains and `cl_overview` / `codelens overview` for dependency groups, hubs, cross-group connections, and cycles.
+- Added `cl_diff` / `codelens diff` to map base-to-working-tree changes to current indexed symbols, affected callers, tests, and documents, with explicit file fallbacks and historical-evidence gaps.
+- Added `cl_tour` / `codelens tour` for deterministic reading sequences with source locations, selection reasons, and anchored relationship evidence.
+- Added explicit local Markdown-to-code references, including uniquely resolved qualified symbol links. Documents remain separate from callers and architecture dependencies.
+
+### Changed
+- Symbol impact now follows resolved TS/JS and Python endpoints. Broader file dependencies remain in `fileFallback`. Relationship chains expose source spans, extraction methods, endpoint resolution, confidence, staleness, and truncation.
+- Added SQLite migration v4 for symbol scopes, endpoint identities, evidence spans, and per-file graph versions. Existing indexes are refreshed through the versioned extraction path.
+- Improved cold indexing with statement reuse and cleanup avoidance for new files. Incremental relinking is scoped to affected paths, and bidirectional graph queries use selective endpoint indexes.
+- Made Git status reads non-mutating and reused scope within each MCP request. Quiet requests avoid self-induced watcher scans while real edits, branch changes, and deliberate safety rechecks remain observable.
+- Expanded regression and benchmark coverage for dense source files, sparse graphs, bounded diff/tour output, Git process counts, and quiet-request scans.
+
+### Fixed
+- Corrected Python closure shadowing, JavaScript loop `var` ownership, initializer call ownership, and same-line relationship deduplication.
+- Preserved deferred documentation invalidation across partial indexing and process restarts.
+- Stabilized deterministic community propagation and retained current content for files recreated after staged deletion.
+
+### Notes
+- Graph results describe supported static relationships, not runtime traces. Diff analysis compares a base commit with the working tree, not a staged-only snapshot, and does not reconstruct historical callers of removed code.
+
 ## [2.6.0] - 2026-09-24
 
 ### Added
