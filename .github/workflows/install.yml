@@ -35,8 +35,20 @@ jobs:
           npm --version
       - name: Install checkout dependencies with scoped script permissions
         run: |
-          native="$(node -e 'const p = require("./package.json"); console.log(Object.keys(p.dependencies).filter(n => n === "better-sqlite3" || n === "tree-sitter" || n.startsWith("tree-sitter-")).concat("esbuild").join(","))')"
-          npm ci --legacy-peer-deps --allow-scripts="$native"
+          # npm ci requires project-scoped approvals, not --allow-scripts.
+          # Restore the manifest even on failure; never ship these CI-only approvals.
+          cp package.json "$RUNNER_TEMP/codelens-package.json"
+          trap 'cp "$RUNNER_TEMP/codelens-package.json" package.json' EXIT
+          node --input-type=commonjs <<'NODE'
+          const fs = require("node:fs");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const packages = Object.keys(pkg.dependencies)
+            .filter(name => name === "better-sqlite3" || name === "tree-sitter" || name.startsWith("tree-sitter-"))
+            .concat("esbuild");
+          pkg.allowScripts = Object.fromEntries(packages.map(name => [name, true]));
+          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          NODE
+          npm ci --legacy-peer-deps
       - run: npm run build
       - name: Check platform installer failure paths
         run: npm test -- tests/installers.test.ts tests/upgrade.test.ts
