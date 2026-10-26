@@ -11,7 +11,7 @@ import type { ServerContext } from "../src/tools/registry.js";
 
 const EXPECTED_TOOLS = [
   "cl_current", "cl_refresh", "cl_search", "cl_explore", "cl_related",
-  "cl_impact", "cl_expand", "cl_map", "cl_save", "cl_load", "cl_stats",
+  "cl_impact", "cl_diff", "cl_path", "cl_overview", "cl_tour", "cl_expand", "cl_map", "cl_save", "cl_load", "cl_stats",
   "cl_doctor", "cl_usage", "cl_prune", "cl_drop",
 ];
 
@@ -62,6 +62,26 @@ describe("tool handlers (end-to-end via registry)", () => {
     const r = await call("cl_search", { query: "validateSession", limit: 5 }) as { results: Array<{ path: string }> };
     expect(r.results.length).toBeGreaterThan(0);
     expect(r.results.some((h) => h.path === "src/auth/session.ts")).toBe(true);
+  });
+
+  it("cl_diff reports a clean worktree through the registry", async () => {
+    const r = await call("cl_diff") as { files: unknown[]; comparison: string };
+    expect(r.comparison).toBe("worktree"); expect(r.files).toEqual([]);
+  });
+
+  it("cl_path resolves an indexed same-file target through the registry", async () => {
+    const r = await call("cl_path", { from: "src/auth/session.ts", to: "src/auth/session.ts" }) as { found: boolean };
+    expect(r.found).toBe(true);
+  });
+
+  it("cl_overview reports bounded code structure through the registry", async () => {
+    const r = await call("cl_overview") as { counts: { nodes: number } };
+    expect(r.counts.nodes).toBeGreaterThan(0);
+  });
+
+  it("cl_tour returns an indexed starting stop through the registry", async () => {
+    const r = await call("cl_tour", { start: "src/auth/session.ts" }) as { stops: Array<{ path: string }> };
+    expect(r.stops[0]!.path).toBe("src/auth/session.ts");
   });
 
   it("cl_expand reads exact file", async () => {

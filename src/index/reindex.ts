@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { GitScope } from "../git/scope.js";
 import { scanFiles } from "./scanner.js";
+import { relinkEdges } from "../graph/edges.js";
 import { diffFiles, type FreshnessDiff } from "./freshness.js";
 import { indexFile, deleteFileFromIndex } from "./fts.js";
 import { getOrCreateIndex } from "./manager.js";
@@ -73,31 +74,45 @@ export function ensureFreshIndex(
     const scanned = scanFiles(scope.repoRoot);
     const diff: FreshnessDiff = diffFiles(db, indexId, scanned, scope.repoRoot);
 
+    const knownFiles = new Set(scanned.map(f => f.path));
     const toProcess = [...diff.changed, ...diff.newFiles];
+    const inventoryChanged = diff.newFiles.length > 0 || diff.deleted.length > 0;
+    // Persist invalidation before committing targets. Deferred documents must
+    // remain discoverable after the process-local pending map is lost.
+    if (inventoryChanged) {
+      db.prepare("UPDATE files SET graph_version = NULL WHERE index_id = ? AND language = 'markdown' AND deleted = 0").run(indexId);
+    }
+    const pendingBefore = getPendingPaths(indexId);
+    toProcess.push(...diff.unchanged.filter(f => pendingBefore.has(f.path)
+      || f.language === "markdown" && inventoryChanged));
     let refreshed = 0;
-    let pending = 0;
-    let pendingPaths: string[] = [];
-    for (const f of toProcess) {
+    const updatedPaths: string[] = [];
+    const pendingPaths: string[] = [];
+    for (let i = 0; i < toProcess.length; i++) {
+      const f = toProcess[i]!;
       if (Date.now() - start > budget) {
-        pendingPaths = toProcess.slice(refreshed).map((p) => p.path);
-        pending = pendingPaths.length;
+        pendingPaths.push(...toProcess.slice(i).map(p => p.path));
         break;
       }
       try {
-        indexFile(db, indexId, scope.repoRoot, f);
+        indexFile(db, indexId, scope.repoRoot, f, knownFiles);
         refreshed++;
+        updatedPaths.push(f.path);
       } catch {
-        // skip unreadable
+        pendingPaths.push(f.path);
       }
     }
+    const pending = pendingPaths.length;
     setPendingPaths(indexId, pendingPaths);
 
     let deleted = 0;
     for (const d of diff.deleted) {
       deleteFileFromIndex(db, indexId, d.path);
       deleted++;
+      updatedPaths.push(d.path);
     }
 
+    if (updatedPaths.length > 0) relinkEdges(db, indexId, updatedPaths);
     return { refreshed, deleted, pending, durationMs: Date.now() - start };
   } finally {
     releaseWriteLease(db, indexId, owner);

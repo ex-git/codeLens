@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { requireActiveIndex } from "../index/manager.js";
 import { markStale } from "../index/staleness.js";
-import { neighbors, type GraphNeighbor } from "../graph/query.js";
+import { walkGraph, type GraphNeighbor } from "../graph/query.js";
 import { ctxSearch, type SearchHandle, type SnippetMode } from "./search.js";
 
 export interface ExploreItem {
@@ -30,6 +30,7 @@ export interface ExploreTruncated {
   files?: number;
   results?: number;
   related?: number;
+  graph?: boolean;
 }
 
 export interface ExploreResult {
@@ -156,9 +157,12 @@ export function ctxExplore(
   const relatedDepth = Math.min(Math.max(1, opts?.relatedDepth ?? DEFAULT_RELATED_DEPTH), MAX_RELATED_DEPTH);
   const related: ExploreRelation[] = [];
   const seenRelated = new Set<string>();
+  let graphTruncated = false;
   for (const sourcePath of files.map((f) => f.path).slice(0, RELATED_SOURCE_LIMIT)) {
     try {
-      for (const n of neighbors(db, indexId, sourcePath, { types: ["imports", "imported_by", "tests", "calls", "references", "inherits"], depth: relatedDepth })) {
+      const walk = walkGraph(db, indexId, sourcePath, { types: ["imports", "imported_by", "tests", "calls", "references", "inherits", "documents"], depth: relatedDepth });
+      graphTruncated ||= walk.truncated;
+      for (const n of walk.results) {
         const key = `${sourcePath}\0${n.path}\0${n.edgeType}\0${n.hops}`;
         if (seenRelated.has(key)) continue;
         seenRelated.add(key);
@@ -182,6 +186,7 @@ export function ctxExplore(
     freshness: search.freshness,
   };
   const truncated: ExploreTruncated = {};
+  if (graphTruncated) truncated.graph = true;
   if (omittedFiles > 0) truncated.files = omittedFiles;
   if (omittedResults > 0) truncated.results = omittedResults;
   if (omittedRelated > 0) truncated.related = omittedRelated;

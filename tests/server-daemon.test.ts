@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ interface JsonRpcResponse {
 function makeRepo(): { repo: string; realRepo: string; cleanup: () => void } {
   const repo = mkdtempSync(join(tmpdir(), "ce-daemon-repo-"));
   execSync("git init -q", { cwd: repo });
-  execSync("git config user.email t@t.t && git config user.name t", { cwd: repo });
+  execSync("git config user.email t@t.t && git config user.name t && git config maintenance.auto false && git config gc.auto 0", { cwd: repo });
   mkdirSync(join(repo, "src"), { recursive: true });
   writeFileSync(join(repo, "src", "session.ts"), "export const session = true;\n");
   execSync("git add -A && git commit -q -m init", { cwd: repo });
@@ -106,7 +106,7 @@ describe("daemon MCP socket mode", () => {
     execSync("npm run build", { stdio: "ignore" });
   }, 30_000);
 
-  it("serves MCP initialize and tools/list over the daemon socket", async () => {
+  it("serves tools with one setup scope per request and observes branch switches", async () => {
     const { repo, realRepo, cleanup } = makeRepo();
     const fakeHome = mkdtempSync(join(tmpdir(), "ce-daemon-home-"));
     const paths = daemonPaths(realRepo, { home: fakeHome });
@@ -115,7 +115,7 @@ describe("daemon MCP socket mode", () => {
     const daemon = spawn(process.execPath, [serverJs, "--cwd", realRepo, "--auto-index", "never", "--daemon"], {
       cwd: tmpdir(),
       stdio: ["ignore", "ignore", "pipe"],
-      env: { ...process.env, HOME: fakeHome },
+      env: { ...process.env, HOME: fakeHome, GIT_TRACE2_EVENT: join(fakeHome, "git-trace.jsonl") },
     });
     daemon.stderr?.setEncoding("utf-8");
     daemon.stderr?.on("data", (chunk: string) => { stderr += chunk; });
@@ -132,6 +132,28 @@ describe("daemon MCP socket mode", () => {
       client.notify("notifications/initialized");
       const tools = await client.request("tools/list", {}) as { tools?: Array<{ name: string }> };
       expect(tools.tools?.map((tool) => tool.name)).toContain("cl_search");
+      await client.request("tools/call", { name: "cl_refresh", arguments: {} });
+      const invoke = async (name: string, args: Record<string, unknown> = {}, quiet = false) => {
+        const trace = join(fakeHome, "git-trace.jsonl"), offset = readFileSync(trace, "utf8").length;
+        const response = await client!.request("tools/call", { name, arguments: args }) as { content: Array<{ text: string }>; isError?: boolean };
+        const starts = readFileSync(trace, "utf8").slice(offset).trim().split("\n").filter(Boolean)
+          .map(line => JSON.parse(line) as { event?: string; argv?: string[] }).filter(row => row.event === "start");
+        expect(starts.filter(row => row.argv?.includes("--show-toplevel"))).toHaveLength(1);
+        if (quiet) expect(starts.filter(row => row.argv?.includes("ls-files"))).toHaveLength(0);
+        return response;
+      };
+      const current = await invoke("cl_current");
+      expect(JSON.parse(current.content[0]!.text).repo).toBe(realRepo);
+      const search = await invoke("cl_search", { query: "session" });
+      expect(JSON.parse(search.content[0]!.text).count).toBeGreaterThan(0);
+      await invoke("cl_search", { query: "session" }, true);
+      expect((await invoke("cl_diff", { base: "does-not-exist" })).isError).toBe(true);
+      execSync("git checkout -qb request-next", { cwd: repo });
+      const next = await invoke("cl_current");
+      expect(JSON.parse(next.content[0]!.text).branch).toBe("request-next");
+      writeFileSync(join(repo, "src", "session.ts"), "export const replacementSession = true;\n");
+      const edited = await invoke("cl_search", { query: "replacementSession" });
+      expect(JSON.parse(edited.content[0]!.text).count).toBeGreaterThan(0);
     } finally {
       client?.close();
       daemon.kill("SIGTERM");

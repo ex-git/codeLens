@@ -94,6 +94,10 @@ searches or bulk file reads. Choose the tool by intent:
 - Assess blast radius before changing shared code: use \`cl_impact\`. Pass
   \`symbol\` + \`path\` when both are known; pass \`path\` alone for module/file
   impact when the symbol is uncertain.
+- Explain a static connection between two file or symbol targets: use \`cl_path\`.
+- Survey dependency groups, hubs, cross-group connections, or cycles: use \`cl_overview\`.
+- Review current working-tree changes against a base commit: use \`cl_diff\`.
+- Get an evidence-backed reading sequence: use \`cl_tour\`, optionally with a starting file.
 - Get a cheap structural outline without reading whole files: use \`cl_map\`.
 - Read exact current code after choosing a target: use \`cl_expand\` or a raw read.
 - Persist important working context across compaction with \`cl_save\`/\`cl_load\`.
@@ -109,6 +113,14 @@ relationships must reflect large recent changes, or the user requests a rebuild.
 If a result has \`stale:true\` or \`freshness:"partial"\`, read the target directly
 before relying on it. If CodeLens is not attached to this workspace, tell the
 user instead of silently falling back to broad raw discovery.
+
+Symbol impact keeps broader file dependencies in \`fileFallback\`; they are not
+proven symbol callers. \`documents\` links are references, not callers. Inspect
+chain source evidence and stale intermediates. Paths are static, not runtime
+traces. Overview groups are heuristic. Check truncation and convergence.
+Diff impact is not staged-only; removed code has unknown historical impact.
+Inspect coverage gaps. Tour roots start separate reading sections; relationship
+chains refer to their named anchor, not necessarily the preceding stop.
 
 Results are scoped to the current branch; call \`cl_current\` after \`git checkout\`.
 Always inspect exact current content before editing. See \`docs/routing.md\`.

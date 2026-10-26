@@ -73,7 +73,10 @@ export function detectScope(cwd: string): GitScope | null {
 
 /** List repo-relative posix paths that are changed or untracked (not ignored). */
 export function listDirty(cwd: string): string[] {
-  const r = spawnSync("git", ["status", "--porcelain", "-z"], { cwd, encoding: "utf-8" });
+  // Avoid optional index refresh writes that would dirty our file watcher.
+  const r = spawnSync("git", ["status", "--porcelain", "-z"], {
+    cwd, encoding: "utf-8", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  });
   if (r.error || r.status !== 0) return [];
   // -z separates records by NUL. Rename/copy records are encoded as
   // "XY new-path\0old-path\0", so consume the old-path record explicitly.

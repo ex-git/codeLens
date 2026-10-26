@@ -1,5 +1,22 @@
 import type Database from "better-sqlite3";
 
+const indexingStatements = new WeakMap<Database.Database, Map<string, Database.Statement>>();
+
+/** Reuse fixed indexing SQL within one database. Do not cache dynamic search SQL. */
+export function prepareIndexStatement(db: Database.Database, sql: string): Database.Statement {
+  let statements = indexingStatements.get(db);
+  if (!statements) {
+    statements = new Map();
+    indexingStatements.set(db, statements);
+  }
+  let statement = statements.get(sql);
+  if (!statement) {
+    statement = db.prepare(sql);
+    statements.set(sql, statement);
+  }
+  return statement;
+}
+
 /**
  * Centralized index-row deletion helpers (Step 24 / DRY refactor 1d).
  *
@@ -21,15 +38,16 @@ export function deleteFileRows(
   path: string,
   edgeMode: "out" | "both",
 ): void {
-  db.prepare("DELETE FROM chunks_fts WHERE index_id = ? AND path = ?").run(indexId, path);
-  db.prepare("DELETE FROM chunks WHERE index_id = ? AND path = ?").run(indexId, path);
-  db.prepare("DELETE FROM symbols WHERE index_id = ? AND path = ?").run(indexId, path);
+  prepareIndexStatement(db, "DELETE FROM chunks_fts WHERE index_id = ? AND path = ?").run(indexId, path);
+  prepareIndexStatement(db, "DELETE FROM chunks WHERE index_id = ? AND path = ?").run(indexId, path);
+  prepareIndexStatement(db, "UPDATE edges SET to_id = NULL WHERE index_id = ? AND to_path = ?").run(indexId, path);
+  prepareIndexStatement(db, "DELETE FROM symbols WHERE index_id = ? AND path = ?").run(indexId, path);
   if (edgeMode === "out") {
-    db.prepare("DELETE FROM edges WHERE index_id = ? AND from_path = ?").run(indexId, path);
+    prepareIndexStatement(db, "DELETE FROM edges WHERE index_id = ? AND from_path = ?").run(indexId, path);
   } else {
-    db.prepare("DELETE FROM edges WHERE index_id = ? AND (from_path = ? OR to_path = ?)").run(indexId, path, path);
+    prepareIndexStatement(db, "DELETE FROM edges WHERE index_id = ? AND (from_path = ? OR to_path = ?)").run(indexId, path, path);
   }
-  db.prepare("DELETE FROM files WHERE index_id = ? AND path = ?").run(indexId, path);
+  prepareIndexStatement(db, "DELETE FROM files WHERE index_id = ? AND path = ?").run(indexId, path);
 }
 
 /**

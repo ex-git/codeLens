@@ -252,6 +252,13 @@ describe("installer: codex routing (AGENTS.md)", () => {
     runInstall({ serverCommand: CMD, location: "global", target: ["codex"], instructions: true });
     const p = join(fakeHome, ".codex", "AGENTS.md");
     const content = readFileSync(p, "utf-8");
+    expect(content).toContain("use `cl_path`");
+    expect(content).toContain("use `cl_overview`");
+    expect(content).toContain("use `cl_diff`");
+    expect(content).toContain("use `cl_tour`");
+    expect(content).toContain("unknown historical impact");
+    expect(content).toContain("`fileFallback`");
+    expect(content).toContain("`documents` links are references, not callers");
     expect(content).toContain(INSTRUCTIONS_START);
     expect(content).toContain("Unknown area, conceptual question, or execution flow");
     expect(content).toContain("ranked hybrid `cl_search`");

@@ -18,8 +18,12 @@ tool by intent:
 4. Assess blast radius before changing shared code: use `cl_impact`. Pass
    `symbol` + `path` when both are known; pass `path` alone for module/file
    impact when the symbol is uncertain.
-5. Get a cheap structural outline without reading whole files: use `cl_map`.
-6. Read exact current content after choosing a target: use `cl_expand` or a raw
+5. Explain a static connection between two file or symbol targets: use `cl_path`.
+6. Survey dependency groups, hubs, cross-group connections, or cycles: use `cl_overview`.
+7. Review current working-tree changes against a base commit: use `cl_diff`.
+8. Get an evidence-backed reading sequence: use `cl_tour`, optionally with a starting file.
+9. Get a cheap structural outline without reading whole files: use `cl_map`.
+10. Read exact current content after choosing a target: use `cl_expand` or a raw
    read. Persist important context across compaction with `cl_save`/`cl_load`.
 
 Call `cl_current` when index readiness is uncertain. Installed MCP configs
@@ -35,6 +39,18 @@ workspace, CodeLens is not attached to this workspace. Tell the user to restart
 the IDE after upgrading (the global Cursor config attaches via
 `${workspaceFolder}`), or to re-run `codelens install --target cursor --yes`. Do
 not silently fall back to raw `find`/`grep` for discovery.
+
+## Interpret graph evidence
+
+Symbol impact separates resolved calls from broader `fileFallback`
+dependencies. `documents` links are references, not callers. Inspect chain
+source spans and extraction methods before relying on relationships. Paths are
+static, not runtime traces. Overview groups are heuristic, not architecture
+boundaries. Check truncation, convergence, and stale intermediate evidence.
+Empty results do not prove that no dependency exists. `cl_diff` is not staged-only;
+removed code has unknown historical impact. Inspect its coverage gaps.
+Tour roots are separate reading sections, not inferred execution entrypoints.
+Follow each relationship stop’s named anchor when reading its evidence chain.
 
 ## When raw grep/find/read is fine (or better)
 
@@ -79,6 +95,10 @@ retry instead of launching more indexing work.
 | `cl_explore` | one-call grouped search + previews + relationship map |
 | `cl_related` | graph neighbors (imports/tests/callers) |
 | `cl_impact` | callers/callees/affected files/tests before edits |
+| `cl_diff` | base-to-working-tree impact with explicit coverage gaps |
+| `cl_tour` | bounded reading sequence with source and relationship evidence |
+| `cl_path` | bounded static connection chain with evidence |
+| `cl_overview` | heuristic dependency groups, hubs, bridges, cycles |
 | `cl_map` | per-file symbol outline (repo map) |
 | `cl_expand` | exact current file content by path/range |
 | `cl_save` / `cl_load` | persist + reload working context |

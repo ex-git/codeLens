@@ -17,6 +17,7 @@ export interface ExtractedSymbol {
   signature?: string;
   exported: boolean;
   doc?: string;
+  scope?: string;
 }
 
 // Node types → symbol kind. Covers TS/JS/Python/Go/Rust/Java/Ruby/PHP/C/C++.
@@ -55,6 +56,11 @@ export function extractSymbols(_path: string, lang: string, source: string, pars
   function nodeName(node: Parser.SyntaxNode): string | null {
     const nameNode = (node as unknown as { childForFieldName?: (f: string) => Parser.SyntaxNode | null }).childForFieldName?.("name");
     if (nameNode) return nameNode.text;
+    if (node.type === "lexical_declaration" || node.type === "variable_declaration") {
+      const declarations = node.namedChildren.filter(c => c.type === "variable_declarator");
+      const name = declarations.length === 1 ? declarations[0]!.childForFieldName("name") : null;
+      return name?.type === "identifier" ? name.text : null;
+    }
     for (const c of node.namedChildren) {
       if (c.type === "identifier" || c.type === "property_identifier") return c.text;
     }
@@ -90,6 +96,16 @@ export function extractSymbols(_path: string, lang: string, source: string, pars
           endLine: node.endPosition.row + 1,
           signature: firstLine(node.text),
           exported: isExported(node),
+          scope: (() => {
+            const names: string[] = [];
+            for (let parent = node.parent; parent; parent = parent.parent) {
+              if (SYMBOL_TYPES[parent.type] && !EXPORT_WRAPPERS.has(parent.type)) {
+                const name = nodeName(parent);
+                if (name) names.unshift(name);
+              }
+            }
+            return names.join(".");
+          })(),
         });
       }
     }

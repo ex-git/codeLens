@@ -7,7 +7,12 @@ import { openContextDb } from "./context/store.js";
 import { detectScope } from "./git/scope.js";
 import { buildIndex } from "./index/indexer.js";
 import { clearAutoIndexing } from "./index/autoindex.js";
-import { getActiveIndexId } from "./index/manager.js";
+import { getActiveIndexId, getOrCreateIndex } from "./index/manager.js";
+import { ensureFreshIndex } from "./index/reindex.js";
+import { ctxPath } from "./tools/path.js";
+import { ctxDiff, type DiffImpactOptions } from "./tools/diff.js";
+import { ctxOverview } from "./tools/overview.js";
+import { ctxTour, type TourOptions } from "./tools/tour.js";
 import { ctxSearch } from "./tools/search.js";
 import { ctxRelated } from "./tools/related.js";
 import { gatherStats } from "./obs/stats.js";
@@ -58,6 +63,7 @@ function ensureActiveIndex(coreDb: ReturnType<typeof openDb>, repoRoot: string):
   const scope = detectScope(repoRoot);
   if (!scope) throw new Error("not inside a git repo (or a directory with files)");
   if (!getActiveIndexId()) buildIndex(coreDb, scope);
+  else { getOrCreateIndex(coreDb, scope); ensureFreshIndex(coreDb, scope); }
 }
 
 export async function cli(args: string[]): Promise<number> {
@@ -66,7 +72,7 @@ export async function cli(args: string[]): Promise<number> {
   const cmd = args[0];
   const repoRoot = resolveCwd(parsed.cwd);
   if (!cmd || cmd === "--help" || cmd === "-h") {
-    console.log("codelens [--cwd <path>] [current|index|search <q>|related <path>|stats|doctor|eval [repo]|install|uninstall|upgrade|version]");
+    console.log("codelens [--cwd <path>] [current|index|search <q>|related <path>|path <from> <to>|overview|diff [--base <ref>]|tour [--start <path>]|stats|doctor|eval [repo]|install|uninstall|upgrade|version]");
     return 0;
   }
   // ── DB-free commands (no repo/index needed) ──────────────────
@@ -175,6 +181,51 @@ export async function cli(args: string[]): Promise<number> {
         ensureActiveIndex(coreDb, repoRoot);
         const r = ctxRelated(coreDb, path);
         for (const h of r.results) console.log(`${h.edgeType} (${h.hops}h)  ${h.path}`);
+        break;
+      }
+      case "diff": {
+        try {
+          const options: DiffImpactOptions = {};
+          const numeric = { "--depth": ["depth", 3], "--limit": ["limit", 100], "--max-files": ["maxFiles", 200], "--max-targets": ["maxTargets", 50] } as const;
+          for (let i = 1; i < args.length; i += 2) {
+            const flag = args[i]!, value = args[i + 1];
+            if (!value) throw new Error(`${flag} requires a value`);
+            if (flag === "--base") options.base = value;
+            else if (Object.hasOwn(numeric, flag)) {
+              const [key, max] = numeric[flag as keyof typeof numeric];
+              options[key] = boundedPositiveInt(value, flag, max);
+            } else throw new Error(`Unknown diff option: ${flag}`);
+          }
+          ensureActiveIndex(coreDb, repoRoot);
+          console.log(JSON.stringify(ctxDiff(coreDb, repoRoot, options), null, 2));
+        } catch (error) { console.error(error instanceof Error ? error.message : String(error)); return 1; }
+        break;
+      }
+      case "path": {
+        if (!args[1] || !args[2] || args.length !== 3) { console.error("path requires <from> <to>"); return 1; }
+        ensureActiveIndex(coreDb, repoRoot);
+        console.log(JSON.stringify(ctxPath(coreDb, { from: args[1], to: args[2] }), null, 2));
+        break;
+      }
+      case "tour": {
+        try {
+          const options: TourOptions = {};
+          for (let i = 1; i < args.length; i += 2) {
+            const flag = args[i]!, value = args[i + 1];
+            if (!value) throw new Error(`${flag} requires a value`);
+            if (flag === "--start") options.start = value;
+            else if (flag === "--limit") options.limit = boundedPositiveInt(value, flag, 20);
+            else throw new Error(`Unknown tour option: ${flag}`);
+          }
+          ensureActiveIndex(coreDb, repoRoot);
+          console.log(JSON.stringify(ctxTour(coreDb, options), null, 2));
+        } catch (error) { console.error(error instanceof Error ? error.message : String(error)); return 1; }
+        break;
+      }
+      case "overview": {
+        if (args.length !== 1) { console.error("overview takes no positional arguments"); return 1; }
+        ensureActiveIndex(coreDb, repoRoot);
+        console.log(JSON.stringify(ctxOverview(coreDb), null, 2));
         break;
       }
       case "stats": {

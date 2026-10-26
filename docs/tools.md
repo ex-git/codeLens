@@ -31,12 +31,72 @@ JSON-serialized text content.
 ## cl_related
 - **Input**: `{ path: string, types?: string[], depth?: number=2, direction?: "out"|"in"|"both" }`
 - **Returns**: `{ indexId, results:[{handle,path,edgeType,hops,confidence,stale?}], freshness?, pendingFiles? }`
-- **Edge types**: `imports|imported_by|tests|calls|references|inherits|defines|exports|belongs_to` (TS/JS populate `calls`/`references` and resolve dynamic `import()`; Python populates repo-local `imports`/`calls`/`inherits`).
+- **Edge types**: `imports|imported_by|tests|calls|references|inherits|defines|exports|belongs_to|documents` (TS/JS populate `calls`/`references` and resolve dynamic `import()`; Python populates repo-local `imports`/`calls`/`inherits`).
 
 ## cl_impact
 - **Input**: `{ symbol?: string, path?: string, depth?: number=2, includeTests?: boolean=true }`
-- **Returns**: `{ indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, depth, summary?, confidenceNote, freshness?, pendingFiles? }`
+- **Returns**: `{ indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, documents?, resolution?, fileFallback?, truncated?, depth, summary?, confidenceNote, freshness?, pendingFiles? }`
 - **Use**: before changing shared code. Pass `symbol` plus `path` when possible; if a symbol is ambiguous, CodeLens returns `candidates` instead of guessing. Impact is edge-derived and includes confidence/hop counts plus provenance labels (`graph` or conservative `path-heuristic`); use `cl_expand` to inspect exact current code before editing.
+
+Symbol requests follow resolved static symbol calls/inheritance. `fileFallback`
+contains broader file dependencies, not proven callers. Use a qualified name
+such as `Left.run` when same-file names are ambiguous. Unsupported or unresolved
+forms can be absent. `documents` is separate from impact dependencies.
+
+## cl_diff
+- **Input**: `{ base?: string="HEAD", depth?: number=2, limit?: number=20, maxFiles?: number=50, maxTargets?: number=20 }`
+- **Returns**: `{ indexId, base, baseSha, comparison:"worktree", depth, files, targets, callers, dependencies, affectedTests, documents, fileFallback, gaps, omitted, truncated, freshness, pendingFiles?, note }`
+- **Use**: review the combined effect of staged and unstaged edits against a base commit. Non-ignored untracked paths are included. The base is compared directly, not through a merge-base. Invalid or unborn base revisions return an error.
+- **Mapping**: nonempty current hunk ranges intersect exact indexed symbol spans. File content and graph version must match before symbol mapping. Nested symbols can both intersect a changed range. Module-level changes and deletion-only hunks use separate file-level context.
+- **Evidence**: `callers` contains current resolved-symbol impact. `fileFallback` contains broader incoming file dependencies. `dependencies` contains outgoing context, not affected callers. Each aggregate result has `causedBy`: zero-based indexes into `targets`. Tests and documentation are separate sections.
+- **Unknowns**: removed ranges/files and old rename paths report `historical-impact-unavailable`. This includes replacements that remove old lines. No historical graph is built. Unindexed, stale, conflicted, binary, oversized, or unreadable files appear in `gaps`; empty results never prove safety. Git-recognized renames retain `oldPath`; other moves appear as deletion/addition. A staged-deleted file recreated on disk is reported as `untracked`, with `oldPath` recording its removed tracked path.
+- **Bounds**: depth 1–3, result limit 1–100 per section, files 1–200, targets 1–50. Source inspection is capped at 512 KiB per file. Each Git command has a 5-second timeout and 2 MiB output cap. File analysis has a 10-second scheduling budget. Each impact walk is capped at 200 nodes/1000 edges, with at most 10 affected-file test lookups per target. At most 20 hunk ranges per file are returned; `omittedRanges` reports the rest. Aggregate omitted counts cover known candidates, not undiscovered graph nodes.
+- **Safety**: no checkout, staging, external diff, or textconv. Reads are not an atomic filesystem snapshot. Normal query reconciliation can update the local CodeLens index, but not repository files or Git state.
+
+## Relationship evidence
+
+Graph results add a `chain` of edges. Each edge carries `fromPath`, `toPath`,
+`edgeType`, `reversed`, `confidence`, `method`, and endpoint `resolution`
+(`symbol` or `file`). Resolved symbol IDs/names and a source line range are
+included when available. `method` is `ast`, `path-heuristic`,
+`explicit-reference`, or `unavailable` for legacy evidence.
+
+Confidence is the minimum heuristic score across the selected chain, not a
+probability. The selected chain is shortest; ties prefer greater confidence.
+An intermediate stale file marks the chain stale. Work bounds are 1000 nodes
+and 5000 scanned edges by default. Check `truncated` (`relatedTruncated` for
+search; `truncated.graph` for exploration). Depth remains capped at 3 for
+related/impact queries. `imported_by` is the incoming view of `imports`.
+
+`documents` edges come from explicit local Markdown links, reference-style
+links, and inline-code paths. A `path#Scope.name` fragment must resolve uniquely;
+GitHub-style line fragments remain file references. Links use source-document
+line evidence. No URLs are fetched. Fenced examples, repository escapes, and
+unsupported code grammars are excluded. Documents above 512 KiB remain text-only.
+
+## cl_path
+- **Input**: `{ from: string, to: string, direction?: "out"|"in"|"both"="out", types?: string[], depth?: number=6, maxNodes?: number=1000, maxEdges?: number=5000 }`
+- **Targets**: two indexed file paths or two symbols (`path#Scope.name` or an unambiguous exact name). Mixed file/symbol targets are rejected.
+- **Returns**: `{ indexId, found, status, from?, to?, candidates?, chain, confidence?, truncated, visited, depth, stale?, freshness, pendingFiles?, note }`
+- **Status**: `found`, `unresolved`, `incompatible-targets`, or `not-found-within-limits`. A negative result is not proof that no relationship exists.
+- **Bounds**: depth 1–12, nodes 1–5000, scanned edges 1–20000. Default edge types are structural; request `documents` explicitly for document paths.
+- **Use**: explain a static connection. This is not a runtime execution trace. `reversed:true` marks a hop traversed against the stored edge direction.
+
+## cl_overview
+- **Input**: `{ limit?: number=10, maxNodes?: number=1000, maxEdges?: number=5000 }`
+- **Returns**: `{ indexId, counts, communities, hubs, bridges, cycles, omitted, inputTruncated, communitiesConverged, truncated, freshness, pendingFiles?, note }`
+- **Bounds**: 1–50 items per section, at most 5000 scanned files and 20000 scanned structural edges. Community members are capped at 10; cycle members at 20.
+- **Use**: orient in a repository. Groups use deterministic label propagation with at most 20 rounds. Hubs use dependency degrees. Bridges are cross-group edges, not cut-edge proofs. Cycles are strongly connected components, not enumerated paths.
+- **Caveats**: groups are heuristic, not architecture boundaries. Check convergence and all truncation fields. Documents, self-file edges, and unsupported code grammars are excluded. Analysis runs on demand, not on every search.
+
+## cl_tour
+- **Input**: `{ start?: string, limit?: number=8 }`
+- **Returns**: `{ indexId, status, stops, omittedStops, truncated, freshness, pendingFiles?, note }`
+- **Status**: `ready`, `empty`, or `unresolved-start`.
+- **Use**: obtain a short reading sequence. Omit `start` for a repository tour, or pass an indexed code-file path for a focused tour. Symbols are not accepted as starting targets.
+- **Stops**: each stop has `path`, `kind`, `source`, up to three indexed `symbols`, `omittedSymbols`, `reason`, and a `chain`. Relationship reasons name their `anchor`; the chain does not necessarily start at the preceding stop. Root reasons have no connecting chain and start separate reading sections. Test/document stops provide context, not proof of test coverage.
+- **Bounds**: 1–20 stops. Repository selection reuses the bounded overview; each dependency walk has depth 3 and caps of 200 nodes/1000 edges. Candidate storage is capped at 200 paths. Test/document lookups are bounded. Check `truncated`, `omittedStops`, and stale evidence; omission counts cover discovered candidates only.
+- **Caveat**: this is a deterministic reading aid, not an execution trace or authoritative architecture. Source locations are indexed; use `cl_expand` to inspect current content.
 
 ## cl_map
 - **Input**: `{ path?: string, limit?: number=50, all?: boolean }`

@@ -18,8 +18,9 @@ CodeLens MCP server  ──▶  CLI (codelens <subcommand>)
    ├── File scanner              (.gitignore-aware, binary/size filters)
    ├── FTS5 indexer              (structure-aware chunks + content hash)
    ├── Tree-sitter symbol extractor (11 grammars, text fallback)
-   ├── Source graph builder      (imports / calls / references / inherits / defines / exports / tests / belongs_to)
-   ├── Graph query (recursive CTE + bounded BFS)
+   ├── Source graph builder      (structural edges + explicit documentation links)
+   ├── Graph query               (bounded evidence-bearing BFS)
+   ├── Architecture summary      (dependency groups / hubs / bridges / SCCs)
    ├── Freshness checker          (mtime/size fast → hash on suspicion)
    ├── TTL pruner                (never-delete guards)
    ├── Saved-context store       (separate DB, survives rebuilds)
@@ -52,9 +53,13 @@ SQLite
    structure-aware chunking consumes those extracted symbol ranges. 11 grammars
    shipped; unknown languages fall back to text-only FTS.
 4. **Source graph**: edges `imports`, `calls`, `references`, `inherits`,
-   `defines`, `belongs_to`, `exports`, and `tests` (filename heuristics).
-   Resolution handles TS ESM `.js`→`.ts` substitution plus exact repo-local
-   Python modules/packages. Unresolved imports emit no edge (no wrong edges).
+   `defines`, `belongs_to`, `exports`, `tests` (filename heuristics), and
+   `documents` (explicit Markdown references). Edges retain endpoint identity,
+   extraction method, and available source spans. Supported TS/JS and Python
+   forms resolve calls to current symbols. Resolution handles TS ESM
+   `.js`→`.ts` substitution plus exact repo-local Python modules/packages.
+   Unresolved imports are omitted. Unsupported symbol forms remain file-level
+   or unresolved; static edges do not establish runtime execution.
 5. *(No vector/semantic layer — removed; ranking is FTS + symbol + graph.)*
 
 ## Branch isolation (the core idea)
@@ -71,13 +76,18 @@ leak into `feature-b`. `cl_current` reports which index is active.
 
 ## Freshness (local files are source of truth)
 
-Before query tools answer (`cl_search`, `cl_explore`, `cl_related`, `cl_impact`, `cl_map`), `ensureFreshIndex` runs:
+Before query tools answer (`cl_search`, `cl_explore`, `cl_related`, `cl_impact`, `cl_map`, `cl_path`, `cl_overview`, `cl_diff`, `cl_tour`), `ensureFreshIndex` runs:
 1. Detect current git scope → activate/create the branch index.
 2. Scan files, diff `mtime`+`size` vs indexed rows (fast); hash only
    changed/suspicious files.
 3. Reindex changed/new files in per-file transactions; drop deleted. Files with
    chunks from an older/unknown `chunker_version` are also treated as changed, so
-   chunker improvements roll forward on the next refresh.
+   chunker improvements roll forward on the next refresh. A per-file
+   `graph_version` also invalidates old extraction, including legacy indexes.
+   Symbol endpoints are relinked after each full or incremental batch. Target
+   edits clear obsolete IDs before relinking unchanged callers and documents.
+   Inventory changes also refresh unchanged Markdown references; deferred
+   documents remain pending until processed.
 4. Budget-bounded (default 500ms); if incomplete, surface
    `freshness:"partial"` + `pendingFiles`. A chunker-version bump can require a
    full budget-bounded re-chunk over several refresh cycles.
@@ -85,6 +95,14 @@ Before query tools answer (`cl_search`, `cl_explore`, `cl_related`, `cl_impact`,
 `cl_expand` **always reads current disk** (never stale stored text). A file
 watcher (server mode) short-circuits the scan when nothing changed, with a 5s
 periodic full-scan backstop.
+
+Normal MCP request setup resolves Git scope once and passes a copied request
+context to the tool handler. Scope is not cached across requests or stored on
+the shared daemon context. Standalone callers still resolve scope when needed.
+Git status runs with `GIT_OPTIONAL_LOCKS=0`, so status observation does not
+refresh the Git index and create false watcher events. Real edits and checkouts
+still reach the watcher. Startup root validation and deliberate safety checks,
+such as the final diff scope check, remain separate.
 
 **Edit behavior:** when the agent edits a file, the *next query tool call*
 auto-refreshes and reindexes it (lazy, not eager at edit time). If the refresh
@@ -113,8 +131,46 @@ score = fts×0.34 + symbol×0.18 + graph×0.22 + code×0.08 + path×0.08 + exact
   isn't drowned out by markdown. Pass `contentType:"code"` to filter to source
   only.
 
-`cl_related` runs a recursive-CTE BFS over the `edges` table (direction-aware,
-cycle-guarded, depth-capped at 3).
+`cl_related` uses indexed adjacency queries and a bounded BFS over `edges`.
+Traversal is direction-aware, cycle-guarded, and depth-capped at 3. Each result
+includes a selected shortest evidence chain. Equal-length ties prefer greater
+minimum edge confidence. Scores are heuristics, not probabilities. Stale
+intermediates mark the complete chain stale. Node/edge caps report truncation.
+
+## Static paths and architecture summaries
+
+`cl_path` reuses the traversal for two file targets or two resolved symbol
+targets. Qualified names use `path#Scope.name`. It returns explicit unresolved,
+mixed-granularity, and not-found-within-limits statuses rather than guessing.
+
+`cl_overview` loads a bounded structural file graph on demand. Deterministic
+label propagation yields navigation groups. Dependency degrees identify hubs;
+cross-group edges supply bridge evidence. Iterative strongly connected
+components identify cycles without recursive call-stack risk. Groups are
+heuristic. Truncation and convergence fields describe incomplete analysis.
+
+`documents` links do not become callers or architecture dependencies. Local
+Markdown links, reference-style links, and inline-code file references are
+resolved against the scanned code inventory with repository path guards.
+Symbol fragments must resolve uniquely. Fenced examples and external URLs are
+excluded. No LLM or network service is involved. Document extraction shares the
+512 KiB structural limit; larger documents retain text search.
+
+## Diff impact and reading tours
+
+`cl_diff` resolves a base commit and reads bounded Git path records and hunks.
+The comparison is against the working tree, including untracked files. Current
+content hashes and graph versions guard line-to-symbol mapping. Exact symbol
+IDs feed the existing impact analysis; file context remains separate. Deleted
+ranges and old rename paths have no historical graph evidence. Coverage gaps
+and work/output limits remain explicit. External diff and textconv are disabled.
+
+`cl_tour` selects representative roots from the existing bounded overview, or
+uses a supplied indexed file. Existing bounded traversal supplies dependency
+chains. Indexed symbols provide source locations; test and document edges add
+reading context. Roots are separate sections. No semantic summaries or runtime
+entrypoints are inferred. Both tools reuse the current branch index without a
+new graph store, schema, dependency, or LLM.
 
 ## Concurrency & recovery
 

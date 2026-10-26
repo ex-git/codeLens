@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { openMemoryDb } from "../src/db/db.js";
 import { buildIndex } from "../src/index/indexer.js";
 import { ctxImpact } from "../src/tools/impact.js";
+import { ctxPath } from "../src/tools/path.js";
 import { detectScope, type GitScope } from "../src/git/scope.js";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -18,7 +19,7 @@ beforeAll(() => {
   mkdirSync(join(repo, "src", "auth"), { recursive: true });
   mkdirSync(join(repo, "tests"), { recursive: true });
   writeFileSync(join(repo, "src", "auth", "session.ts"),
-    "export function validateSession(token: string): boolean { return token.length > 0; }\nexport function sharedName() { return true; }\n");
+    "export function validateSession(token: string): boolean { return token.length > 0; }\nexport function sharedName() { return true; }\nexport class Left { run() {} }\nexport class Right { run() {} }\n");
   writeFileSync(join(repo, "src", "auth", "auth.ts"),
     "import { validateSession } from './session';\nexport const ok = validateSession('x');\nexport function sharedName() { return ok; }\n");
   writeFileSync(join(repo, "tests", "session.test.ts"),
@@ -54,6 +55,31 @@ describe("ctxImpact", () => {
     expect(r.target).toBeUndefined();
     expect(r.confidenceNote).toContain("Multiple symbols matched");
     db.close();
+  });
+
+  it("shares qualified exact identities with path queries", () => {
+    const db = openMemoryDb();
+    try {
+      buildIndex(db, scope!);
+      const input = "src/auth/session.ts#Left.run";
+      const path = ctxPath(db, { from: input, to: input });
+      const impact = ctxImpact(db, { path: "src/auth/session.ts", symbol: "Left.run" });
+      expect(path.found).toBe(true);
+      expect(path.from!.symbolId).toBe(impact.target!.symbolId);
+      expect(impact.target).toMatchObject({ symbol: "run", kind: "method" });
+      expect(ctxImpact(db, { path: "src/auth/session.ts", symbol: "run" }).candidates).toHaveLength(2);
+    } finally { db.close(); }
+  });
+
+  it("keeps fuzzy lookup in impact without making path targets fuzzy", () => {
+    const db = openMemoryDb();
+    try {
+      buildIndex(db, scope!);
+      const exact = ctxImpact(db, { symbol: "validateSession" });
+      const fuzzy = ctxImpact(db, { symbol: "validateSess" });
+      expect(fuzzy.target).toEqual(exact.target);
+      expect(ctxPath(db, { from: "validateSess", to: "src/auth/session.ts#validateSession" }).status).toBe("unresolved");
+    } finally { db.close(); }
   });
 
   it("supports path-only impact with an honest confidence note", () => {

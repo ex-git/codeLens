@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
  * transport. Auto-prune runs on startup + periodic idle timer.
  */
 
-function createServer(ctx: ServerContext, beforeTool?: () => Promise<void>): McpServer {
+function createServer(ctx: ServerContext, beforeTool?: () => Promise<ServerContext>): McpServer {
   const server = new McpServer({ name: "codelens", version: VERSION });
 
   for (const tool of TOOLS) {
@@ -41,22 +41,23 @@ function createServer(ctx: ServerContext, beforeTool?: () => Promise<void>): Mcp
       tool.schema,
       async (args) => {
         const usage = new UsageTracker(openGlobalUsageDb());
+        let requestContext = ctx;
         try {
-          if (beforeTool) await beforeTool();
-          const result = await tool.handler(ctx, args as Record<string, unknown>);
+          if (beforeTool) requestContext = await beforeTool();
+          const result = await tool.handler(requestContext, args as Record<string, unknown>);
           const text = JSON.stringify(result);
           let savedOverride: number | undefined;
           if (DISCOVERY_TOOLS.has(tool.name)) {
             try {
               const indexId = getActiveIndexId();
-              if (indexId) savedOverride = estimateSavedFromPaths(ctx.coreDb, indexId, extractDiscoveryPaths(text), Buffer.byteLength(text));
+              if (indexId) savedOverride = estimateSavedFromPaths(requestContext.coreDb, indexId, extractDiscoveryPaths(text), Buffer.byteLength(text));
             } catch { /* fall back to flat proxy */ }
           }
-          try { if (TRACKED_TOOLS.has(tool.name)) usage.record(tool.name, ctx.repoRoot, text, false, savedOverride); } catch { /* usage best-effort */ }
+          try { if (TRACKED_TOOLS.has(tool.name)) usage.record(tool.name, requestContext.repoRoot, text, false, savedOverride); } catch { /* usage best-effort */ }
           return { content: [{ type: "text" as const, text }] };
         } catch (err) {
           const text = `Error: ${err instanceof Error ? err.message : String(err)}`;
-          try { if (TRACKED_TOOLS.has(tool.name)) usage.record(tool.name, ctx.repoRoot, text, true); } catch { /* usage best-effort */ }
+          try { if (TRACKED_TOOLS.has(tool.name)) usage.record(tool.name, requestContext.repoRoot, text, true); } catch { /* usage best-effort */ }
           return { content: [{ type: "text" as const, text }], isError: true };
         }
       },
@@ -69,12 +70,12 @@ function repoRootFromCwd(cwd?: string): string {
   return resolveCwd(cwd);
 }
 
-const CLI_COMMANDS = new Set(["current","index","refresh","search","related","stats","usage","doctor","eval","install","uninstall","upgrade","version","--print-config","-v","--version","--help","-h"]);
+const CLI_COMMANDS = new Set(["current","index","refresh","search","related","path","overview","diff","tour","stats","usage","doctor","eval","install","uninstall","upgrade","version","--print-config","-v","--version","--help","-h"]);
 
 interface RuntimeController {
   ctx: ServerContext;
   bindServer(server: McpServer): void;
-  beforeTool(): Promise<void>;
+  beforeTool(): Promise<ServerContext>;
   settleRootAndTriggerAutoIndex(): Promise<void>;
   rootsSettled(): boolean;
   close(): void;
@@ -135,18 +136,25 @@ function createRuntimeController(
     if (root) await switchRoot(root);
   }
 
-  async function settleRootAndTriggerAutoIndex(): Promise<void> {
+  async function prepareRequest(): Promise<ServerContext> {
     await tryResolveMcpRoots();
     const scope = detectScope(ctx.repoRoot);
-    if (!scope) return;
-    activateReadyIndex(scope);
-    checkAndTriggerAutoIndex(scope);
+    if (scope) {
+      activateReadyIndex(scope);
+      checkAndTriggerAutoIndex(scope);
+    }
+    // The controller context is shared by daemon clients. Never cache scope on it.
+    return { ...ctx, requestScope: scope };
+  }
+
+  async function settleRootAndTriggerAutoIndex(): Promise<void> {
+    await prepareRequest();
   }
 
   return {
     ctx,
     bindServer(server: McpServer): void { serverRef.current = server; },
-    beforeTool: settleRootAndTriggerAutoIndex,
+    beforeTool: prepareRequest,
     settleRootAndTriggerAutoIndex,
     rootsSettled: () => rootsChecked,
     close: () => {

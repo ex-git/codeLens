@@ -3,6 +3,7 @@ import type { GitScope } from "../git/scope.js";
 import { getOrCreateIndex, getActiveIndexId } from "./manager.js";
 import { scanFiles, type ScannedFile } from "./scanner.js";
 import { indexFile, deleteFileFromIndex } from "./fts.js";
+import { relinkEdges } from "../graph/edges.js";
 import { setPendingPaths } from "./staleness.js";
 
 /**
@@ -43,6 +44,7 @@ export function buildIndex(db: Database.Database, scope: GitScope): BuildResult 
       skipped++;
     }
   }
+  relinkEdges(db, indexId);
   setPendingPaths(indexId, []);
   return { indexId, indexedFiles, totalChunks, skipped };
 }

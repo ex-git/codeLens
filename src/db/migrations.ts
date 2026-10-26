@@ -49,6 +49,22 @@ export const MIGRATIONS: Migration[] = [
   },
 ];
 
+MIGRATIONS.push({
+  version: 4,
+  description: "symbol endpoints and relationship evidence",
+  sql: `
+    ALTER TABLE files ADD COLUMN graph_version INTEGER;
+    ALTER TABLE symbols ADD COLUMN scope TEXT NOT NULL DEFAULT '';
+    ALTER TABLE edges ADD COLUMN from_symbol TEXT;
+    ALTER TABLE edges ADD COLUMN to_symbol TEXT;
+    ALTER TABLE edges ADD COLUMN from_line INTEGER;
+    ALTER TABLE edges ADD COLUMN to_line INTEGER;
+    ALTER TABLE edges ADD COLUMN source_start_line INTEGER;
+    ALTER TABLE edges ADD COLUMN source_end_line INTEGER;
+    ALTER TABLE edges ADD COLUMN method TEXT;
+  `,
+});
+
 export const CODE_SCHEMA_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);
 
 /** Read the highest applied version from the DB (0 if fresh). */

@@ -6,14 +6,19 @@ import { ctxSearch } from "./search.js";
 import { ctxExplore } from "./explore.js";
 import { ctxRelated } from "./related.js";
 import { ctxImpact } from "./impact.js";
+import { ctxDiff, type DiffImpactOptions } from "./diff.js";
 import { ctxExpand } from "./expand.js";
 import { ctxMap } from "./map.js";
+import { ctxPath, type PathOptions } from "./path.js";
+import { ctxOverview } from "./overview.js";
+import { ctxTour, type TourOptions } from "./tour.js";
+import type { OverviewOptions } from "../graph/overview.js";
 import { ctxSave, ctxLoad } from "./save.js";
 import { ctxPrune, ctxDrop } from "./prune.js";
 import { gatherStats } from "../obs/stats.js";
 import { runDoctor } from "../obs/doctor.js";
 import { UsageTracker, openGlobalUsageDb } from "../obs/usage.js";
-import { detectScope } from "../git/scope.js";
+import { detectScope, type GitScope } from "../git/scope.js";
 import { getOrCreateIndex, getActiveIndexId } from "../index/manager.js";
 import { buildIndex } from "../index/indexer.js";
 import { ensureFreshIndex } from "../index/reindex.js";
@@ -32,6 +37,8 @@ export interface ServerContext {
   coreDb: Database.Database;
   ctxDb: Database.Database;
   repoRoot: string;
+  /** Request-local only: undefined means unresolved; null means known non-Git. */
+  requestScope?: GitScope | null;
 }
 
 export interface ToolDef {
@@ -42,7 +49,7 @@ export interface ToolDef {
 }
 
 function withScope(ctx: ServerContext) {
-  return detectScope(ctx.repoRoot);
+  return ctx.requestScope === undefined ? detectScope(ctx.repoRoot) : ctx.requestScope;
 }
 
 /**
@@ -83,7 +90,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Report current repo/branch/index status with freshness fields. Use first to check if an index is ready. If status is indexing, wait/retry shortly instead of refreshing immediately.\n\nRETURNS: {repo, branch, headSha, indexId, status, dirtyFiles, lastIndexedAt, indexingStartedAt?, indexingAgeMs?, inGitRepo}\n\nEXAMPLE: cl_current",
     schema: {},
-    handler: (ctx) => ctxCurrent(ctx.coreDb, ctx.repoRoot),
+    handler: (ctx) => ctxCurrent(ctx.coreDb, ctx.repoRoot, withScope(ctx)),
   },
   {
     name: "cl_refresh",
@@ -151,10 +158,10 @@ export const TOOLS: ToolDef[] = [
   {
     name: "cl_related",
     description:
-      "Graph expansion: neighbors of a file (imports/imported_by/tests/callers/inheritance) within the current index, bounded by depth. Compact handles.\n\nRETURNS: {indexId, results:[{handle,path,edgeType,hops,confidence}]}\n\nEXAMPLE: cl_related(path: \"src/auth/auth.ts\", types: [\"imports\"], depth: 2)",
+      "Graph expansion within the current index. Returns compact handles plus evidence chains, source spans, extraction methods, and minimum whole-chain confidence (a heuristic, not a probability). Imported_by is the incoming imports view. Work limits set truncated:true; stale intermediates mark chains stale.\n\nRETURNS: {indexId, results:[{handle,path,edgeType,hops,confidence}]}\n\nEXAMPLE: cl_related(path: \"src/auth/auth.ts\", types: [\"imports\"], depth: 2)",
     schema: {
       path: z.string().describe("Repo-relative POSIX path to expand from."),
-      types: z.array(z.string()).optional().describe("Edge types: imports|imported_by|tests|calls|references|inherits|defines|exports|belongs_to."),
+      types: z.array(z.string()).optional().describe("Edge types: imports|imported_by|tests|calls|references|inherits|defines|exports|belongs_to|documents."),
       depth: z.coerce.number().optional().default(2).describe("Max hops (capped at 3)."),
       direction: z.enum(["out", "in", "both"]).optional().describe("Edge direction. Default 'both'."),
     },
@@ -170,9 +177,9 @@ export const TOOLS: ToolDef[] = [
   {
     name: "cl_impact",
     description:
-      "Blast-radius analysis for a symbol or file in the current branch index. Returns callers, callees, affected files, and affected tests with hops/confidence. Use before changing shared code.\n\nRETURNS: {indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, depth, confidenceNote, freshness?, pendingFiles?}\n\nEXAMPLE: cl_impact(symbol: \"validateSession\", path: \"src/auth/session.ts\", depth: 2)",
+      "Static blast-radius analysis for a symbol or file in the current branch index. Returns resolved symbol callers/callees, affected files/tests, documents, and evidence chains. Broader file dependencies remain in fileFallback, not proven symbol callers. Unsupported static forms can be absent. Check truncation and freshness. Use before changing shared code.\n\nRETURNS: {indexId, target?, candidates?, callers, callees, affectedFiles, affectedTests, depth, confidenceNote, freshness?, pendingFiles?}\n\nEXAMPLE: cl_impact(symbol: \"validateSession\", path: \"src/auth/session.ts\", depth: 2)",
     schema: {
-      symbol: z.string().optional().describe("Symbol name to analyze. If ambiguous, candidates are returned."),
+      symbol: z.string().optional().describe("Symbol name or qualified Scope.name to analyze. If ambiguous, candidates are returned."),
       path: z.string().optional().describe("Repo-relative path to analyze or to disambiguate a symbol."),
       depth: z.coerce.number().optional().default(2).describe("Traversal depth (default 2, capped at 3)."),
       includeTests: z.boolean().optional().default(true).describe("Include affected test files (default true)."),
@@ -186,6 +193,51 @@ export const TOOLS: ToolDef[] = [
         includeTests: args.includeTests as boolean | undefined,
       });
     },
+  },
+  {
+    name: "cl_diff",
+    description: "Analyze base-commit changes against the current working tree, including untracked files. Maps changed current lines to verified indexed symbols and returns callers, dependencies, tests, documents, fileFallback, and coverage gaps. Removed code has unknown historical impact. Not staged-only and not a safety verdict. Check freshness, gaps, and truncation.\n\nEXAMPLE: cl_diff(base: \"HEAD\", maxTargets: 20)",
+    schema: {
+      base: z.string().min(1).max(1024).optional().describe("Base commit/ref; default HEAD. Compared directly to the working tree, not merge-base."),
+      depth: z.coerce.number().int().min(1).max(3).optional(),
+      limit: z.coerce.number().int().min(1).max(100).optional().describe("Results per aggregate section; default 20."),
+      maxFiles: z.coerce.number().int().min(1).max(200).optional().describe("Changed files to inspect; default 50."),
+      maxTargets: z.coerce.number().int().min(1).max(50).optional().describe("Symbol/file targets to analyze; default 20."),
+    },
+    handler: (ctx, args) => { ensureActive(ctx); return ctxDiff(ctx.coreDb, ctx.repoRoot, args as DiffImpactOptions, ctx.requestScope); },
+  },
+  {
+    name: "cl_path",
+    description: "Find a bounded shortest static relationship chain between two indexed file paths or two symbols (path#Scope.name, or an unambiguous name). Returns evidence, direction, minimum chain confidence, freshness, and truncation. Not a runtime trace. Default direction is out; both allows reverse traversal. Mixed file/symbol targets are rejected.\n\nEXAMPLE: cl_path(from: \"src/routes.ts\", to: \"src/store.ts\")",
+    schema: {
+      from: z.string().min(1).max(2048),
+      to: z.string().min(1).max(2048),
+      direction: z.enum(["out", "in", "both"]).optional(),
+      types: z.array(z.string().min(1).max(64)).max(12).optional(),
+      depth: z.coerce.number().int().min(1).max(12).optional().describe("Maximum hops; default 6."),
+      maxNodes: z.coerce.number().int().min(1).max(5000).optional().describe("Visited-node limit; default 1000."),
+      maxEdges: z.coerce.number().int().min(1).max(20000).optional().describe("Scanned-edge limit; default 5000."),
+    },
+    handler: (ctx, args) => { ensureActive(ctx); return ctxPath(ctx.coreDb, args as unknown as PathOptions); },
+  },
+  {
+    name: "cl_overview",
+    description: "Summarize architecture from the current branch's static dependency graph: deterministic navigation communities, dependency hubs, cross-group connections, and strongly connected cycles. Heuristic, not authoritative architecture. Returns bounded members, omitted counts, inputTruncated, convergence, and freshness. No LLM required.\n\nEXAMPLE: cl_overview(limit: 10)",
+    schema: {
+      limit: z.coerce.number().int().min(1).max(50).optional().describe("Items per section; default 10."),
+      maxNodes: z.coerce.number().int().min(1).max(5000).optional().describe("Scanned-file limit; default 1000."),
+      maxEdges: z.coerce.number().int().min(1).max(20000).optional().describe("Scanned structural-edge limit; default 5000."),
+    },
+    handler: (ctx, args) => { ensureActive(ctx); return ctxOverview(ctx.coreDb, args as OverviewOptions); },
+  },
+  {
+    name: "cl_tour",
+    description: "Build a bounded evidence-backed reading tour from the current branch index. Optional start is an indexed code file. Returns ordered stops with source locations, selection reasons, anchored static relationship chains, and linked tests/documents. Roots are separate reading sections, not inferred execution entrypoints. Check freshness and truncation. No LLM required.\n\nEXAMPLE: cl_tour(start: \"src/server.ts\", limit: 8)",
+    schema: {
+      start: z.string().min(1).max(2048).optional().describe("Optional indexed code file to start from; omit for a repository tour."),
+      limit: z.coerce.number().int().min(1).max(20).optional().describe("Maximum reading stops; default 8."),
+    },
+    handler: (ctx, args) => { ensureActive(ctx); return ctxTour(ctx.coreDb, args as TourOptions); },
   },
   {
     name: "cl_expand",

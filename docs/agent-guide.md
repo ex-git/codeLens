@@ -35,6 +35,19 @@ End-to-end workflow for a coding agent using codelens.
    cl_impact(symbol: "validateSession", path: "src/auth/session.ts")
    → { callers: [...], callees: [...], affectedFiles: [...], affectedTests: [...], confidenceNote: "…" }
 
+   # Explain a connection. Use two files or two path#Scope.name symbols.
+   cl_path(from: "src/routes/login.ts", to: "src/auth/session.ts")
+   # Inspect evidence chains; this is not a runtime execution trace.
+
+   # Repository architecture navigation (heuristic, bounded):
+   cl_overview(limit: 10)
+
+   # A short reading sequence with anchored graph evidence:
+   cl_tour(start: "src/routes/login.ts", limit: 8)
+
+   # Review current changes against HEAD (not staged-only):
+   cl_diff(base: "HEAD")
+
    # Orientation (optional): outline a file or directory without reading it.
    cl_map(path: "src/auth")
    → files: [{ path: "src/auth/session.ts", symbols: [{ name: "validateSession", kind: "function", signature: "export function validateSession(token: string): boolean" }] }]
@@ -56,6 +69,11 @@ Choose by intent rather than calling every tool in sequence:
 - Find a symbol, behavior, or likely implementation location: use ranked hybrid `cl_search`.
 - Find callers, importers, tests, or dependencies of a known file: use `cl_related`.
 - Assess blast radius before editing shared code: use `cl_impact`. Pass `symbol` + `path` when both are known; pass `path` alone for module/file impact when the symbol is uncertain.
+- Explain a static connection between two targets: use `cl_path`.
+- Find dependency groups, hubs, cross-group edges, or cycles: use `cl_overview`.
+- Review current changes against a base commit: use `cl_diff`; inspect coverage gaps and file fallbacks.
+- Get a source-backed reading sequence: use `cl_tour`; optionally pass a starting file.
+- Find design documents linked to code: use `cl_related` with `types:["documents"]`, or inspect `cl_impact.documents`.
 - Get a cheap structural outline without reading whole files: use `cl_map`.
 - Inspect exact current content after choosing the target: use `cl_expand` or a raw read.
 
@@ -75,6 +93,26 @@ cl_refresh   → builds feature-b index; main's results no longer leak in
 ## Freshness and stale results
 
 Query tools reconcile changed files before answering. If a response includes `freshness: "partial"`, `pendingFiles`, or per-result `stale:true`, read those stale files directly (`cl_expand` or raw read) before relying on indexed previews/edges.
+
+## Interpret graph results conservatively
+
+Symbol impact follows resolved calls/inheritance. `fileFallback` lists broader
+file dependencies, not proven symbol callers. Unsupported dynamic forms can be
+absent. Use qualified symbol names when same-file names are ambiguous.
+
+Graph chains include extraction methods, source spans, endpoint resolution,
+and direction. Confidence is the minimum heuristic score across the chain.
+Read stale intermediates, not just the final result. Check work/output
+truncation and overview convergence. Negative paths and incomplete cycle lists
+are not proof that a connection or cycle does not exist.
+
+Diff impact uses current indexed symbols only. Deleted code has unknown historical
+impact, not zero callers. `causedBy` refers to indexes into the response’s `targets`.
+Tour roots start separate reading sections. Relationship chains refer to the
+named anchor, not necessarily the preceding stop.
+
+Documentation links are explicit local references. Documents are separate from
+callers and do not contribute to architecture metrics.
 
 ## Saving context across compaction
 

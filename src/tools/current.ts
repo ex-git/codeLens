@@ -25,7 +25,7 @@ export interface CurrentResult {
 }
 
 export function ctxCurrent(db: Database.Database, repoRoot: string, scope?: GitScope | null): CurrentResult {
-  const s = scope ?? detectScope(repoRoot);
+  const s = scope === undefined ? detectScope(repoRoot) : scope;
   if (!s) {
     return {
       repo: repoRoot,

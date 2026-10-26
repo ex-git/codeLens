@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { getActiveIndexId, touchIndex, requireActiveIndex } from "../index/manager.js";
 import { extractSnippet, headlineSnippet } from "../search/snippet.js";
 import { DEFAULT_WEIGHTS, rank, normalize, type SignalScore } from "../search/rank.js";
-import { neighbors, type GraphNeighbor } from "../graph/query.js";
+import { neighbors, walkGraph, type GraphNeighbor } from "../graph/query.js";
 import { ensureFreshIndex } from "../index/reindex.js";
 import { getPendingPaths, markStale } from "../index/staleness.js";
 import { splitIdentifiers } from "../search/identifiers.js";
@@ -38,6 +38,7 @@ export interface SearchResult {
   nextCursor?: string | null;
   /** Graph neighbors of the top result, when `related: true` was requested. */
   related?: GraphNeighbor[];
+  relatedTruncated?: boolean;
 }
 
 const DEFAULT_LIMIT = 5;
@@ -243,7 +244,9 @@ export function ctxSearch(
   if (nextCursor) out.nextCursor = nextCursor;
   if (opts?.related && results[0]) {
     try {
-      out.related = neighbors(db, indexId, results[0]!.path, { types: ["imports", "imported_by", "tests"], depth: 1 });
+      const walk = walkGraph(db, indexId, results[0]!.path, { types: ["imports", "imported_by", "tests", "documents"], depth: 1 });
+      out.related = walk.results;
+      out.relatedTruncated = walk.truncated;
     } catch { /* graph best-effort */ }
   }
   return out;

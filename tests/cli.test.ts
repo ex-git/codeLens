@@ -42,6 +42,44 @@ describe("cli", () => {
     expect(code).toBe(0);
   });
 
+  it("diff prints JSON and rejects invalid options", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await cli(["diff", "--base", "HEAD"])).toBe(0);
+      expect(JSON.parse(String(log.mock.calls.at(-1)![0])).comparison).toBe("worktree");
+      expect(await cli(["diff", "--base"])).toBe(1);
+      expect(await cli(["diff", "--max-targets", "100"])).toBe(1);
+      expect(await cli(["diff", "--staged", "true"])).toBe(1);
+    } finally { log.mockRestore(); }
+  });
+
+  it("path prints JSON and rejects missing arguments", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await cli(["path", "src/a.ts", "src/a.ts"])).toBe(0);
+      expect(JSON.parse(String(log.mock.calls.at(-1)![0])).found).toBe(true);
+      expect(await cli(["path", "src/a.ts"])).toBe(1);
+    } finally { log.mockRestore(); }
+  });
+
+  it("tour prints source-backed stops and rejects invalid bounds", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await cli(["tour", "--start", "src/a.ts", "--limit", "1"])).toBe(0);
+      expect(JSON.parse(String(log.mock.calls.at(-1)![0])).stops[0].path).toBe("src/a.ts");
+      expect(await cli(["tour", "--limit", "21"])).toBe(1);
+      expect(await cli(["tour", "--start"])).toBe(1);
+    } finally { log.mockRestore(); }
+  });
+
+  it("overview prints bounded structure as JSON", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await cli(["overview"])).toBe(0);
+      expect(JSON.parse(String(log.mock.calls.at(-1)![0])).counts.nodes).toBeGreaterThan(0);
+    } finally { log.mockRestore(); }
+  });
+
   it("stats returns counts", async () => {
     const code = await cli(["stats"]);
     expect(code).toBe(0);

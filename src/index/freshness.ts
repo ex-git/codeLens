@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { resolveReal } from "../util/paths.js";
 import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
+import { GRAPH_VERSION } from "../graph/edges.js";
 import { CHUNKER_VERSION } from "./fts.js";
 
 /**
@@ -41,10 +42,11 @@ function loadStored(db: Database.Database, indexId: string): Map<string, StoredF
 function loadStaleChunkPaths(db: Database.Database, indexId: string): Set<string> {
   const rows = db
     .prepare(
-      `SELECT DISTINCT path FROM chunks
+      `SELECT path FROM files WHERE index_id = ? AND (graph_version IS NULL OR graph_version < ?)
+       UNION SELECT DISTINCT path FROM chunks
        WHERE index_id = ? AND (chunker_version IS NULL OR chunker_version < ?)`,
     )
-    .all(indexId, CHUNKER_VERSION) as { path: string }[];
+    .all(indexId, GRAPH_VERSION, indexId, CHUNKER_VERSION) as { path: string }[];
   return new Set(rows.map((r) => r.path));
 }
 

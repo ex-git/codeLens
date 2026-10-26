@@ -92,6 +92,10 @@ describe("migrations", () => {
 
   it("MIGRATIONS versions are unique and contiguous from 1", () => {
     const versions = MIGRATIONS.map((m) => m.version).sort((a, b) => a - b);
-    expect(versions).toEqual([1, 2, 3]);
+    expect(versions).toEqual(Array.from({ length: CODE_SCHEMA_VERSION }, (_, i) => i + 1));
+    const db = openMemoryDb();
+    const columns = (db.prepare("PRAGMA table_info(edges)").all() as { name: string }[]).map(r => r.name);
+    expect(columns).toEqual(expect.arrayContaining(["from_symbol", "to_symbol", "source_start_line", "method"]));
+    db.close();
   });
 });

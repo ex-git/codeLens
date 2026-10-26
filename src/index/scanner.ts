@@ -32,7 +32,7 @@ const EXT_LANG: Record<string, string> = {
   ".yml": "yaml", ".toml": "toml", ".sql": "sql",
 };
 
-function inferLanguage(posixPath: string): string | null {
+export function inferLanguage(posixPath: string): string | null {
   const ext = posix.extname(posixPath).toLowerCase();
   return EXT_LANG[ext] ?? null;
 }

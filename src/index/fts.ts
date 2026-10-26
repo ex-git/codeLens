@@ -5,11 +5,12 @@ import { resolveReal } from "../util/paths.js";
 import { contentHash } from "../util/hash.js";
 import type { ScannedFile } from "./scanner.js";
 import { extractSymbols, type ExtractedSymbol } from "../graph/symbols.js";
-import { extractEdges, insertEdges, type ExtractedEdge } from "../graph/edges.js";
+import { extractEdges, insertEdges, GRAPH_VERSION, type ExtractedEdge } from "../graph/edges.js";
+import { extractDocEdges } from "../graph/docs.js";
 import { parseFile, isCodeLanguage } from "../graph/grammars.js";
 import { isTestFile, resolveTestTargets } from "../graph/tests.js";
 import { withIdentifierSubtokens } from "../search/identifiers.js";
-import { deleteFileRows } from "../db/queries.js";
+import { deleteFileRows, prepareIndexStatement } from "../db/queries.js";
 import { id } from "../util/id.js";
 
 /**
@@ -281,7 +282,8 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
   const lang = file.language ?? "";
   const tree = parserEligible ? parseFile(lang, text) : null;
   const symbols = tree ? extractSymbols(file.path, lang, text, tree) : [];
-  const edges = tree ? extractEdges(file.path, lang, text, root, knownFiles, tree) : [];
+  const edges = tree ? extractEdges(file.path, lang, text, root, knownFiles, tree, symbols) : [];
+  if (parserEligible && lang === "markdown") edges.push(...extractDocEdges(file.path, text, root, knownFiles));
   const lineCount = text.split("\n").length;
   const symbolRows = symbols.map((sym) => ({
     id: id("sym_"),
@@ -296,37 +298,36 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
   const chunks: StructuredChunk[] = structured && structured.length > 0 ? structured : chunkText(text);
 
   const tx = db.transaction(() => {
-    // Remove ALL prior rows for this path+index so reindexing a changed file
-    // does not leave stale symbols/edges. Without this, incremental reindex
-    // would accumulate duplicate symbols + stale graph edges.
-    // Only clear THIS file's outbound edges (from_path = file.path). Inbound edges
-    // from other files (e.g. Y imports X) stay valid since X still exists; they
-    // are only removed when X is deleted (deleteFileFromIndex uses edgeMode "both").
-    deleteFileRows(db, indexId, file.path, "out");
+    // Existing files replace all owned rows and clear incoming symbol IDs.
+    // New paths have no prior rows to remove. Keep the check in this transaction.
+    // Inbound relationships remain; the batch relinks their current symbol IDs.
+    if (prepareIndexStatement(db, "SELECT 1 FROM files WHERE index_id = ? AND path = ?").get(indexId, file.path)) {
+      deleteFileRows(db, indexId, file.path, "out");
+    }
 
-    db.prepare(
-      `INSERT INTO files (id, index_id, path, language, size, mtime_ms, content_hash, git_blob_sha, deleted, last_indexed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)`,
-    ).run(fileId, indexId, file.path, file.language, file.size, file.mtimeMs, hash, Date.now());
+    prepareIndexStatement(db,
+      `INSERT INTO files (id, index_id, path, language, size, mtime_ms, content_hash, git_blob_sha, deleted, last_indexed_at, graph_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)`,
+    ).run(fileId, indexId, file.path, file.language, file.size, file.mtimeMs, hash, Date.now(), GRAPH_VERSION);
 
-    const insertChunk = db.prepare(
+    const insertChunk = prepareIndexStatement(db,
       `INSERT INTO chunks (id, index_id, file_id, symbol_id, path, start_line, end_line, content, content_hash, content_type, chunker, chunker_version)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    const insertFts = db.prepare(
+    const insertFts = prepareIndexStatement(db,
       `INSERT INTO chunks_fts (content, path, index_id, chunk_id) VALUES (?, ?, ?, ?)`,
     );
     // Symbols (Step 13) — insert before chunks so chunks can reference symbol_id.
-    const insertSymbol = db.prepare(
-      `INSERT INTO symbols (id, index_id, file_id, path, name, kind, signature, start_line, end_line, exported, doc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    const insertSymbol = prepareIndexStatement(db,
+      `INSERT INTO symbols (id, index_id, file_id, path, name, kind, signature, start_line, end_line, exported, doc, scope)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     );
     for (const row of symbolRows) {
       const sym = row.sym;
       insertSymbol.run(
         row.id, indexId, fileId, file.path,
         sym.name, sym.kind, sym.signature ?? null, sym.startLine, sym.endLine,
-        sym.exported ? 1 : 0,
+        sym.exported ? 1 : 0, sym.scope ?? "",
       );
     }
 
@@ -343,17 +344,13 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     // Edges: imports (file→file) from extractEdges; defines/belongs_to
     // (file↔symbol); exports (file→exported symbol).
     insertEdges(db, indexId, edges);
-    const insertEdge = db.prepare(
-      `INSERT INTO edges (id, index_id, from_id, to_id, from_path, to_path, type, confidence) VALUES (?, ?, NULL, NULL, ?, ?, ?, ?)`,
-    );
+    const structural: ExtractedEdge[] = [];
     for (const sym of symbols) {
-      // file defines symbol (file→symbol via path; symbol_id kept NULL for path-based edges)
-      insertEdge.run(id("edge_"), indexId, file.path, file.path, "defines", 1.0);
-      // symbol belongs_to file
-      insertEdge.run(id("edge_"), indexId, file.path, file.path, "belongs_to", 1.0);
-      if (sym.exported) {
-        insertEdge.run(id("edge_"), indexId, file.path, file.path, "exports", 1.0);
-      }
+      const base = { fromPath: file.path, toPath: file.path, confidence: 1.0,
+        sourceStartLine: sym.startLine, sourceEndLine: sym.endLine, method: "ast" as const };
+      structural.push({ ...base, fromSymbol: null, toSymbol: sym.name, toLine: sym.startLine, type: "defines" });
+      structural.push({ ...base, fromSymbol: sym.name, fromLine: sym.startLine, toSymbol: null, type: "belongs_to" });
+      if (sym.exported) structural.push({ ...base, fromSymbol: null, toSymbol: sym.name, toLine: sym.startLine, type: "exports" });
     }
 
     // Test edges (Step 15): if this file is a test, emit `tests` edges to
@@ -361,11 +358,13 @@ export function indexFile(db: Database.Database, indexId: string, repoRoot: stri
     if (isTestFile(file.path)) {
       const targets = resolveTestTargets(file.path, knownFiles);
       for (const t of targets) {
-        insertEdge.run(id("edge_"), indexId, file.path, t, "tests", 0.8);
+        structural.push({ fromPath: file.path, toPath: t, fromSymbol: null, toSymbol: null, type: "tests", confidence: 0.8, method: "path-heuristic" });
       }
     }
+    insertEdges(db, indexId, structural);
   });
-  tx();
+  // Acquire the writer lock before the existence check, not during a snapshot upgrade.
+  tx.immediate();
   return { fileId, chunkCount: chunks.length, contentHash: hash, symbols, edges };
 }
 

@@ -17,6 +17,13 @@ Cursor, Gemini CLI, Kiro, opencode, Codex CLI) or directly from the terminal.
   leak across branches.
 - **Relations, not just text** — graph edges (imports / tests / callers / …)
   ranked alongside FTS5 + symbol-name matches.
+- **Explainable graph** — resolved symbol calls stay distinct from file
+  dependencies. Relationships include source evidence, extraction methods, and
+  conservative confidence across the whole chain.
+- **Architecture navigation** — `cl_path` explains static connections;
+  `cl_overview` summarizes dependency groups, hubs, cross-group edges, and cycles.
+- **Documentation links** — explicit repository-local Markdown references
+  connect design documents to code without an LLM.
 - **Fresh** — query tools auto-refresh changed files before answering, flag
   budget-limited stale results, and `cl_expand` always reads from disk.
 - **Singleton runtime** — MCP entry processes for the same repo/worktree share
@@ -180,7 +187,18 @@ node build/src/server.js
 4. `cl_impact(symbol: "validateSession", path: "src/auth/session.ts")` → callers/callees/affected tests before edits.
 5. `cl_related(path: "src/auth/session.ts", types: ["tests"])` → targeted graph expansion.
 6. `cl_map(path: "src/auth")` → per-file symbol outline for orientation.
-7. `cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58)` → exact code.
+7. `cl_path(from: "src/routes/login.ts", to: "src/auth/session.ts")` → a bounded static connection chain.
+8. `cl_overview()` → heuristic dependency groups, hubs, bridges, and cycles.
+9. `cl_diff(base: "HEAD")` → current-change impact, affected tests/documents, and coverage gaps.
+10. `cl_tour(start: "src/routes/login.ts")` → source-backed reading stops with relationship evidence.
+11. `cl_expand(path: "src/auth/session.ts", startLine: 12, endLine: 58)` → exact code.
+
+For symbol-to-symbol paths, use `path#Scope.name` targets. Path results are
+static relationships, not runtime traces. Symbol impact keeps broader file
+relationships in `fileFallback`. Documentation links appear as `documents`,
+not callers. Read evidence and truncation/freshness fields before relying on
+results; see [`docs/tools.md`](docs/tools.md). Diff impact does not reconstruct
+historical callers of removed code. Tours are reading aids, not execution traces.
 
 See [`docs/agent-guide.md`](docs/agent-guide.md) for a full walkthrough,
 [`docs/tools.md`](docs/tools.md) for the tool reference, and
@@ -201,6 +219,10 @@ codelens doctor          # health check
 codelens index            # build/update the current branch index
 codelens search "session validation"   # ranked search
 codelens related src/auth/session.ts    # graph neighbors
+codelens path src/routes/login.ts src/auth/session.ts  # static connection chain
+codelens overview         # bounded architecture summary
+codelens diff --base HEAD # combined staged/unstaged impact; includes untracked files
+codelens tour --start src/server.ts --limit 8 # evidence-backed reading sequence
 codelens stats           # index counts
 codelens current         # repo/branch status
 codelens eval .          # automatic repository evaluation + scorecard
@@ -351,10 +373,16 @@ npm run typecheck   # tsc --noEmit
 npm run lint        # eslint
 npm test            # vitest run
 npm run build       # tsc + copy schema assets
-npm run benchmark   # performance gate (search <50ms, cold <3s)
+npm run benchmark   # indexing, retrieval, and graph performance gates
 npm run quality     # retrieval-quality fixture (recall@5/MRR/top-1/latency)
 npm run eval:agent  # deterministic with/without-CodeLens discovery proxy
 ```
+
+The benchmark checks cold-build SQL preparation counts, extraction from a
+4,000-function file, and file/symbol lookups in a 100,000-edge sparse graph.
+Repeated extraction and graph timings use medians. Workflow guards also check
+50 changed-file comparisons, focused tours, SQL preparation counts, and serialized
+response sizes in a 300-file fixture.
 
 ## Docs
 
@@ -363,6 +391,16 @@ npm run eval:agent  # deterministic with/without-CodeLens discovery proxy
 
 ## Limitations
 
+- **Static graph, not whole-program analysis** — precise calls cover supported
+  TS/JS and Python forms. Dynamic dispatch, default-export identity, re-export
+  chains, and workspace aliases may remain file-level or unresolved. Empty
+  symbol results do not prove there are no callers. Communities are heuristic;
+  path/overview limits and partial freshness affect completeness.
+- **Explicit documentation references only** — Markdown links and inline-code
+  file references resolve to indexed code with supported grammars. Qualified
+  symbol fragments must resolve uniquely. Fenced examples, external URLs, and
+  repository escapes are excluded. Documents above the structural parsing
+  limit (512 KiB) remain searchable but do not produce document edges.
 - **No vector/semantic search** — there is no embedding model; ranking fuses
   FTS5 BM25 + symbol-name + graph proximity + path + code/prose + exact-match
   signals. Code identifiers are matched via bounded subtoken expansion
