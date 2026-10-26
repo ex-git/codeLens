@@ -1,4 +1,4 @@
-import Parser from "tree-sitter";
+import type Parser from "tree-sitter";
 import { createRequire } from "node:module";
 
 const _require = createRequire(import.meta.url);
@@ -8,40 +8,63 @@ const _require = createRequire(import.meta.url);
  *
  * Maps language → tree-sitter Language object. Grammars are lazy-loaded so a
  * missing/failed grammar never breaks indexing (that language falls back to
- * text-only FTS). New grammars are added by extending GRAMMAR_LOADERS.
+ * text-only FTS). New grammars are added by extending GRAMMARS.
  */
 
 type Language = unknown; // tree-sitter Language; typed loosely for portability
 
-const GRAMMAR_LOADERS: Record<string, () => Language> = {
-  typescript: () => _require("tree-sitter-typescript").typescript as Language,
-  javascript: () => _require("tree-sitter-javascript") as Language,
-  python: () => _require("tree-sitter-python") as Language,
-  go: () => _require("tree-sitter-go") as Language,
-  rust: () => _require("tree-sitter-rust") as Language,
-  java: () => _require("tree-sitter-java") as Language,
-  ruby: () => _require("tree-sitter-ruby") as Language,
-  php: () => _require("tree-sitter-php").php as Language,
-  c: () => _require("tree-sitter-c") as Language,
-  cpp: () => _require("tree-sitter-cpp") as Language,
+export const GRAMMARS: Record<string, { package: string; exportName?: string; sample: string }> = {
+  typescript: { package: "tree-sitter-typescript", exportName: "typescript", sample: "export const value: number = 1;" },
+  javascript: { package: "tree-sitter-javascript", sample: "export const value = 1;" },
+  python: { package: "tree-sitter-python", sample: "def value():\n    return 1\n" },
+  go: { package: "tree-sitter-go", sample: "package main\nfunc main() {}\n" },
+  rust: { package: "tree-sitter-rust", sample: "fn main() {}" },
+  java: { package: "tree-sitter-java", sample: "class Example {}" },
+  ruby: { package: "tree-sitter-ruby", sample: "def value\n  1\nend\n" },
+  php: { package: "tree-sitter-php", exportName: "php", sample: "<?php function value() { return 1; }" },
+  c: { package: "tree-sitter-c", sample: "int main(void) { return 0; }" },
+  cpp: { package: "tree-sitter-cpp", sample: "int main() { return 0; }" },
 };
 
 const cache = new Map<string, Language | null>();
+let parserClass: typeof Parser | null | undefined;
+
+function warnFallback(pkg: string, error: unknown): void {
+  console.error(`codelens: ${pkg} unavailable; using text-only search without symbols/graph extraction for affected languages. ${error instanceof Error ? error.message : String(error)}. Run codelens --check-install for recovery steps.`);
+}
+
+function getParserClass(): typeof Parser | null {
+  if (parserClass !== undefined) return parserClass;
+  try {
+    parserClass = _require("tree-sitter") as typeof Parser;
+    return parserClass;
+  } catch (error) {
+    parserClass = null;
+    warnFallback("tree-sitter", error);
+    return null;
+  }
+}
 
 /** Get the tree-sitter Language for a language name, or null if unavailable. */
 export function loadGrammar(lang: string): Language | null {
   if (cache.has(lang)) return cache.get(lang) ?? null;
-  const loader = GRAMMAR_LOADERS[lang];
-  if (!loader) {
+  const spec = Object.hasOwn(GRAMMARS, lang) ? GRAMMARS[lang] : undefined;
+  const ParserClass = spec ? getParserClass() : null;
+  if (!spec || !ParserClass) {
     cache.set(lang, null);
     return null;
   }
   try {
-    const grammar = loader();
+    const loaded = _require(spec.package);
+    const grammar = (spec.exportName ? loaded[spec.exportName] : loaded) as Language;
+    // A successful require does not prove compatibility with the parser ABI.
+    const parser = new ParserClass();
+    (parser as unknown as { setLanguage: (l: unknown) => void }).setLanguage(grammar);
     cache.set(lang, grammar);
     return grammar;
-  } catch {
+  } catch (error) {
     cache.set(lang, null);
+    warnFallback(spec.package, error);
     return null;
   }
 }
@@ -66,7 +89,9 @@ export function makeParser(lang: string): Parser | null {
   const grammar = loadGrammar(lang);
   if (!grammar) return null;
   try {
-    const parser = new Parser();
+    const ParserClass = getParserClass();
+    if (!ParserClass) return null;
+    const parser = new ParserClass();
     // setLanguage signature varies across bindings; the grammar object is the Language.
     (parser as unknown as { setLanguage: (l: unknown) => void }).setLanguage(grammar);
     return parser;

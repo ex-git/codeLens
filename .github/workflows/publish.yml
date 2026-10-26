@@ -10,7 +10,13 @@ permissions:
   id-token: write
 
 jobs:
+  installation:
+    uses: ./.github/workflows/install.yml
+    permissions:
+      contents: read
+
   publish:
+    needs: installation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

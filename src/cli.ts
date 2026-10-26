@@ -72,7 +72,7 @@ export async function cli(args: string[]): Promise<number> {
   const cmd = args[0];
   const repoRoot = resolveCwd(parsed.cwd);
   if (!cmd || cmd === "--help" || cmd === "-h") {
-    console.log("codelens [--cwd <path>] [current|index|search <q>|related <path>|path <from> <to>|overview|diff [--base <ref>]|tour [--start <path>]|stats|doctor|eval [repo]|install|uninstall|upgrade|version]");
+    console.log("codelens [--cwd <path>] [current|index|search <q>|related <path>|path <from> <to>|overview|diff [--base <ref>]|tour [--start <path>]|stats|doctor|--check-install|eval [repo]|install|uninstall|upgrade|version]");
     return 0;
   }
   // ── DB-free commands (no repo/index needed) ──────────────────

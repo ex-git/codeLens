@@ -1,10 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db/db.js";
-import { pruneInstalledIndexes, readRootVersion } from "../src/upgrade.js";
+import { performUpgrade, pruneInstalledIndexes, readRootVersion } from "../src/upgrade.js";
 import { VERSION } from "../src/version.js";
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:child_process")>(),
+  spawnSync: vi.fn(),
+}));
+vi.mock("../src/runtime/daemon.js", () => ({
+  shutdownAllDaemons: async () => ({ scanned: 0, signaled: 0, stopped: 0, staleCleaned: 0, failed: 0 }),
+}));
+afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks(); });
 
 function insertExpiredIndex(db: ReturnType<typeof openDb>, id: string): void {
   db.prepare(
@@ -32,6 +42,30 @@ describe("readRootVersion", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("upgrade installation verification", () => {
+  for (const failed of ["install", "build", "check", "none"]) {
+    it(`verifies before configuration refresh (${failed})`, async () => {
+      const home = mkdtempSync(join(tmpdir(), "ce-upgrade-verify-"));
+      vi.stubEnv("HOME", home);
+      vi.stubEnv("USERPROFILE", home);
+      const steps: string[] = [];
+      vi.mocked(spawnSync).mockImplementation((command, args) => {
+        const words = args as string[];
+        const step = command === "git" ? "git" : command === "npm" ? (words[0] === "install" ? "install" : "build") : words.includes("--check-install") ? "check" : "refresh";
+        steps.push(step);
+        return { status: step === failed ? 9 : 0, stdout: step === "git" ? "main" : "", stderr: step === failed ? "simulated dependency failure" : "", pid: 1, output: [], signal: null };
+      });
+      try {
+        const result = await performUpgrade();
+        expect(result.ok).toBe(failed === "none");
+        expect(steps.includes("refresh")).toBe(failed === "none");
+        if (failed === "check") expect(result.message).toContain("installation verification failed");
+        if (failed === "none") expect(steps.indexOf("check")).toBeLessThan(steps.indexOf("refresh"));
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    });
+  }
 });
 
 describe("pruneInstalledIndexes", () => {

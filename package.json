@@ -56,6 +56,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "test": "vitest run",
+    "test:install": "node scripts/check-package-install.mjs",
     "build": "tsc && node scripts/build.mjs",
     "prepublishOnly": "npm run build",
     "mcp:smoke": "node build/src/server.js --smoke",

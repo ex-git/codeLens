@@ -109,6 +109,8 @@ echo "Installing dependencies (legacy-peer-deps for tree-sitter grammars)..."
 npm install --prefix "$INSTALL_DIR" --legacy-peer-deps --no-audit --no-fund
 echo "Building..."
 npm run build --prefix "$INSTALL_DIR"
+echo "Verifying SQLite FTS5 and language parsers..."
+node "$INSTALL_DIR/build/src/server.js" --check-install
 
 # 3. Install the launcher on PATH. The launcher dispatches CLI subcommands vs
 # the MCP stdio server (no args → MCP server).

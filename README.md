@@ -82,6 +82,70 @@ curl -fsSL https://raw.githubusercontent.com/ex-git/codeLens/main/install.sh | s
 > model — CodeLens has no LLM and configures none. The installer only wires the
 > MCP server + routing instructions into each host's config.
 
+### Installation checks and native dependency recovery
+
+Run this after installation or a Node.js upgrade:
+
+```bash
+codelens --check-install
+```
+
+The command prints a JSON report and exits nonzero if any check fails. It tests
+an in-memory SQLite FTS5 database and parses a sample with every language
+grammar. It does not open or change your indexes. Standalone installers and
+`codelens upgrade` run this check before reporting success.
+
+CodeLens uses native `better-sqlite3`, `tree-sitter`, and language grammar
+packages. Recent npm versions can skip their install scripts unless you
+approve them. Installing the npm package can succeed while these dependencies
+remain unusable. Some packages ship usable prebuilt binaries, so a script
+warning alone does not prove failure.
+
+**Pi-managed npm installation:** Run the following in Pi's npm project
+(normally `~/.pi/agent/npm`, or the custom project reported by the diagnostic).
+Review the scripts before approving them:
+
+```bash
+cd ~/.pi/agent/npm
+npm install-scripts ls
+npm install-scripts approve better-sqlite3 tree-sitter tree-sitter-c tree-sitter-cpp tree-sitter-go tree-sitter-java tree-sitter-javascript tree-sitter-php tree-sitter-python tree-sitter-ruby tree-sitter-rust tree-sitter-typescript
+npm rebuild better-sqlite3 tree-sitter tree-sitter-c tree-sitter-cpp tree-sitter-go tree-sitter-java tree-sitter-javascript tree-sitter-php tree-sitter-python tree-sitter-ruby tree-sitter-rust tree-sitter-typescript
+node node_modules/@fodx/codelens/build/src/server.js --check-install
+```
+
+**Standalone or source installation:** Use the same review, approval, and rebuild
+commands in the CodeLens project directory (normally `~/.codelens/app`).
+Then run `node build/src/server.js --check-install` and rerun the installer if
+it stopped before creating the launcher. Do not edit CodeLens's dependency
+`package.json` inside `node_modules`; approvals belong to the consuming project.
+
+**Global npm or npx installation:** These commands have no persistent consuming
+project for `npm install-scripts approve`. On npm versions that support
+`--allow-scripts`, pass a reviewed comma-separated package list at install time.
+For example, after reviewing every named package:
+
+```bash
+npm install --global --legacy-peer-deps --allow-scripts=better-sqlite3,tree-sitter,tree-sitter-c,tree-sitter-cpp,tree-sitter-go,tree-sitter-java,tree-sitter-javascript,tree-sitter-php,tree-sitter-python,tree-sitter-ruby,tree-sitter-rust,tree-sitter-typescript @fodx/codelens
+```
+
+For `npx`, use the same `--allow-scripts=<list>` and
+`--legacy-peer-deps` options before `--package=@fodx/codelens`, then invoke
+`codelens --check-install`. Older npm versions without `install-scripts`
+use different script policies; check `npm config get ignore-scripts` and rebuild
+after reviewing your policy. CodeLens never changes npm approvals automatically.
+
+If native rebuilding fails, use Node.js 22 or 24 LTS and install Python plus a
+C/C++ toolchain (Xcode Command Line Tools on macOS, compiler tools on Linux, or
+Visual Studio Build Tools on Windows). A `NODE_MODULE_VERSION` mismatch usually
+requires rebuilding with the same Node binary that launches CodeLens.
+Restart your agent and CodeLens daemon after repair.
+
+SQLite is required for startup. If the parser runtime or an individual grammar
+is unavailable, CodeLens reports a warning on stderr and retains text search.
+Symbols and parser-derived graph edges are unavailable for affected languages.
+The strict installation check still fails so incomplete installations are visible.
+Reindex affected repositories after repairing parser dependencies.
+
 ## Supported agents / IDEs
 
 The installer (`codelens install --target <id>`) writes the MCP server config

@@ -140,6 +140,13 @@ export async function performUpgrade(_version?: string): Promise<UpgradeResult> 
   const build = spawnSync("npm", ["run", "build"], { cwd: root, encoding: "utf-8" });
   if (build.status !== 0) return { ok: false, message: `npm run build failed: ${(build.stderr ?? build.stdout ?? "").slice(-500)}` };
 
+  const serverJs = join(root, "build", "src", "server.js");
+  const verification = spawnSync(process.execPath, [serverJs, "--check-install"], { cwd: root, encoding: "utf-8", timeout: 30000 });
+  if (verification.status !== 0) {
+    const detail = verification.stderr || verification.stdout || verification.error?.message || "dependency check failed";
+    return { ok: false, message: `installation verification failed; run codelens --check-install for recovery steps.\n${detail.trim()}` };
+  }
+
   const newVersion = readRootVersion(root);
   const refresh = refreshAgentConfig(root);
   const refreshNote = refresh.ok
